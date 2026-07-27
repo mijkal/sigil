@@ -1,0 +1,24 @@
+<!-- Sigil app icon — the fixed 'S' constellation (see web/src/components/BrandMark.tsx).
+     Full-bleed and `maskable`-safe: the glyph is scaled to 0.88 so it stays inside
+     the 80%-diameter safe circle that Android/iOS crop to. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <radialGradient id="plate" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#12142a"/>
+      <stop offset="100%" stop-color="#0A0A0C"/>
+    </radialGradient>
+  </defs>
+  <rect width="100" height="100" fill="url(#plate)"/>
+  <g transform="translate(50 50) scale(0.88) translate(-50 -50)">
+    <path d="M71 40 L66 22 L45 15 L28 27 L50 50 L72 73 L55 85 L34 78 L29 60" fill="none" stroke="#8b93f8" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="71" cy="40" r="2.2" fill="#8b93f8"/>
+    <circle cx="66" cy="22" r="2.64" fill="#8b93f8"/>
+    <circle cx="45" cy="15" r="3.3" fill="#8b93f8"/>
+    <circle cx="28" cy="27" r="3.74" fill="#8b93f8"/>
+    <circle cx="50" cy="50" r="4.62" fill="#8b93f8"/>
+    <circle cx="72" cy="73" r="3.74" fill="#8b93f8"/>
+    <circle cx="55" cy="85" r="3.3" fill="#8b93f8"/>
+    <circle cx="34" cy="78" r="2.64" fill="#8b93f8"/>
+    <circle cx="29" cy="60" r="2.2" fill="#8b93f8"/>
+  </g>
+</svg>

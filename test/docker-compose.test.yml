@@ -1,0 +1,31 @@
+version: '3.8'
+services:
+  openssh:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: sigil-test-ssh
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - USER_NAME=testuser
+      - USER_PASSWORD=testpass
+      - PASSWORD_ACCESS=true
+      - PUBLIC_KEY_FILE=/config/test_key.pub
+    volumes:
+      - ./fixtures/ssh:/config:ro
+    ports:
+      - "2222:2222"
+    restart: unless-stopped
+
+  # Second SSH host to test multi-host scenarios
+  openssh2:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: sigil-test-ssh2
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - USER_NAME=testuser
+      - USER_PASSWORD=testpass
+      - PASSWORD_ACCESS=true
+    ports:
+      - "2223:2222"
+    restart: unless-stopped

@@ -1,0 +1,89 @@
+# Sigil Hub Configuration
+# Copy to ~/.config/sigil/config.toml and edit
+#
+# TIP: Seed hosts from your existing ~/.ssh/config — each Host block maps
+# directly to a 
+# ── Security ──────────────────────────────────────────────────────────────
+# SSH host-key verification against known_hosts:
+#   "tofu"     (default) trust-on-first-use: record unknown keys, reject CHANGED
+#              keys (MITM signal); fails open on file I/O errors. Needs a clean
+#              known_hosts — legacy/stale entries for a dial address will be
+#              treated as a mismatch and refused. Start fresh or set "insecure".
+#   "strict"   only keys already in known_hosts.
+#   "insecure" accept any key (no MITM protection).
+# host_key_mode = "tofu"
+# known_hosts_path = "~/.ssh/known_hosts"
+#
+# WebSocket Origin allowlist. Empty = permissive (a bearer token is still
+# required). Set in production to reject cross-site connection attempts.
+# allowed_origins = ["sigil.example.com", "*.example.com"]
+
+[[hosts]] entry. The hub itself (localhost) uses 127.0.0.1
+# with the running user so it can discover its own tmux sessions.
+
+[hub]
+# The hub (API + WebSocket). `sigil-web`, which serves the static client,
+# defaults to :7777 — so the hub must NOT also be 7777 or the second process
+# to start dies with "address already in use". 7778 is the documented pairing.
+listen_addr = "0.0.0.0:7778"
+data_dir    = "~/.local/share/sigil"
+log_level   = "info"  # debug, info, warn, error
+
+[hub.tls]
+enabled   = false
+# When ready, put Caddy in front and let it handle TLS:
+#   caddy reverse-proxy --from sigil.yourdomain.com --to localhost:7777
+
+[hub.auth]
+method = "token"
+tokens = ["REPLACE_WITH_YOUR_TOKEN"]
+
+[hub.scrollback]
+capture_enabled   = true
+flush_interval_ms = 500
+max_chunk_lines   = 200
+retention_days    = 90
+
+[hub.discovery]
+interval_seconds = 5
+
+[hub.webhooks]
+enabled = false
+
+# ─── Hosts ───────────────────────────────────────────────────────────────────
+# auth_method: "key" | "agent" | "password"
+# private_key_path: supports ~ expansion
+# auto_connect: true = connect on startup, false = connect on demand
+
+# Self (localhost) — discovers tmux sessions on the hub machine itself
+[[hosts]]
+name             = "local"
+hostname         = "127.0.0.1"
+port             = 22
+user             = "YOUR_USERNAME"
+auth_method      = "key"
+private_key_path = "~/.ssh/id_ed25519"
+tags             = ["local", "self"]
+auto_connect     = true
+
+# Example LAN host
+[[hosts]]
+name             = "myserver"
+hostname         = "myserver.lan"
+port             = 22
+user             = "myuser"
+auth_method      = "key"
+private_key_path = "~/.ssh/id_ed25519"
+tags             = ["local", "lan"]
+auto_connect     = true
+
+# Example production host (different key)
+[[hosts]]
+name             = "prod"
+hostname         = "prod.example.com"
+port             = 22
+user             = "deploy"
+auth_method      = "key"
+private_key_path = "~/.ssh/id_prod"
+tags             = ["prod"]
+auto_connect     = false

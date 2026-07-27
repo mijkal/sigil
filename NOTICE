@@ -1,0 +1,59 @@
+Sigil
+Copyright (c) 2026 Michael Gifford-Santos
+
+This product is licensed under the MIT License. See LICENSE for the full text.
+
+================================================================================
+Third-party components
+================================================================================
+
+Sigil links against and bundles the following open-source components. Each remains
+under its own licence and copyright; nothing here modifies those terms. This file
+is provided for attribution and is not a substitute for the upstream licences,
+which ship with the respective packages.
+
+--------------------------------------------------------------------------------
+Go (daemon, TUI) — see go.mod for exact versions
+--------------------------------------------------------------------------------
+
+  github.com/charmbracelet/bubbles         MIT
+  github.com/charmbracelet/bubbletea       MIT
+  github.com/charmbracelet/lipgloss        MIT
+  github.com/google/uuid                   BSD-3-Clause
+  github.com/gorilla/mux                   BSD-3-Clause
+  github.com/pelletier/go-toml/v2          MIT
+  github.com/rs/zerolog                    MIT
+  golang.org/x/crypto                      BSD-3-Clause
+  modernc.org/sqlite                       BSD-3-Clause
+  nhooyr.io/websocket                      ISC
+
+--------------------------------------------------------------------------------
+Web client — see web/package.json for exact versions
+--------------------------------------------------------------------------------
+
+  @xterm/xterm and @xterm/addon-*          MIT   (Xterm.js)
+  @tanstack/react-virtual                  MIT
+  react, react-dom                         MIT
+  ansi-to-html                             MIT
+  marked                                   MIT
+
+--------------------------------------------------------------------------------
+Runtime dependencies (not bundled)
+--------------------------------------------------------------------------------
+
+Sigil drives tmux and OpenSSH on the hosts it manages. Neither is distributed with
+Sigil; both must already be present on those machines.
+
+  tmux      ISC
+  OpenSSH   BSD-style
+
+================================================================================
+Regenerating this file
+================================================================================
+
+  go list -m -f '{{.Path}} {{.Version}}' all        # Go module set
+  npm --prefix web ls --depth=0 --json              # web dependency set
+
+Licence identifiers above were recorded from the upstream projects at the time of
+writing. Verify them before relying on this file for a compliance review — upstream
+projects do occasionally relicense.

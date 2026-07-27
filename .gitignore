@@ -1,0 +1,46 @@
+# Build output
+dist/
+web/dist/
+
+# Dependencies
+web/node_modules/
+# root package.json is a shim with no deps of its own
+/node_modules/
+/package-lock.json
+
+# Database / runtime data
+*.db
+*.db-shm
+*.db-wal
+
+# Config (use config.example.toml as template)
+config.toml
+
+# Dev secrets
+.dev-token
+
+# Xcode
+apple/DerivedData/
+apple/*.xcodeproj/xcuserdata/
+apple/*.xcworkspace/xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+web/dist.old/
+
+# Agent/orchestrator project context — internal to a given deployment,
+# never part of the release.
+.drydock/

@@ -1,0 +1,34 @@
+[Unit]
+Description=Sigil Hub Daemon
+Documentation=https://github.com/OWNER/sigil
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cc
+Group=cc
+WorkingDirectory=/home/cc
+
+ExecStart=/usr/local/bin/sigild --config /home/cc/.config/sigil/config.toml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sigild
+
+# Resource limits
+LimitNOFILE=65536
+
+# Security hardening (light - allows SSH key reads from home dir)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/cc/.local/share/sigil /home/cc/.config/sigil
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
