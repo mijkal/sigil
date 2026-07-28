@@ -896,10 +896,15 @@ var (
 		`|accept (?:this|these) change|apply (?:this|these) (?:patch|change)|approve (?:this|the) `)
 	// POSITIVE evidence the agent is mid-task. Without this, "not obviously waiting"
 	// was read as "finished".
-	granularWorking = regexp.MustCompile(`(?i)esc to interrupt|ctrl\+c to (?:stop|interrupt)|\btokens used\b|thinking…|working…`)
+	// NB: \s* between every word, not literal spaces. A captured pane is the
+	// terminal's rendered GRID: agents position footer text with cursor moves, so
+	// "esc to interrupt" arrives as "esctointerrupt" with the gaps absent. Patterns
+	// written with real spaces silently never match, and the session then falls
+	// through to the unknown case and shows amber while it is plainly working.
+	granularWorking = regexp.MustCompile(`(?i)esc\s*to\s*interrupt|ctrl\s*\+\s*c\s*to\s*(?:stop|interrupt)|tokens\s*used|thinking…|working…|esc\s*to\s*cancel`)
 	// POSITIVE evidence a turn genuinely ENDED: Claude Code's idle footer, or the
 	// tail resting at a shell prompt (the agent exited).
-	granularDone = regexp.MustCompile(`(?i)\? for shortcuts|shift\+tab to cycle|(?m)^\s*[\w.@~/-]*\s*[$#%❯]\s*$`)
+	granularDone = regexp.MustCompile(`(?i)\?\s*for\s*shortcuts|shift\s*\+\s*tab\s*to\s*cycle|bypass\s*permissions\s*on|(?m)^\s*[\w.@~/-]*\s*[$#%❯]\s*$`)
 )
 
 // classifyGranular refines a stopped session's log tail into error/waiting/done.
