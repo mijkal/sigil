@@ -1,6 +1,6 @@
 [Unit]
 Description=Sigil Hub Daemon
-Documentation=https://github.com/OWNER/sigil
+Documentation=https://github.com/mijkal/sigil
 After=network.target
 Wants=network-online.target
 
