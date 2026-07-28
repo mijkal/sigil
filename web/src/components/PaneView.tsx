@@ -1,6 +1,6 @@
 import { modKey } from '../lib/platform';
 import React, { useCallback, useState } from 'react';
-import { useLayoutStore, paneMinimapMode, paneSigilBadge, paneSigilCorner, paneSigilBackdrop } from '../stores/layoutStore';
+import { useLayoutStore, paneMinimapMode, paneScrollRail, paneSigilBadge, paneSigilCorner, paneSigilBackdrop } from '../stores/layoutStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useConnectionStore } from '../stores/connectionStore';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -630,6 +630,7 @@ function TabBar({ paneId, pane, isFocused: _isFocused, sessions, hosts }: TabBar
   const toggleTimestamps = useLayoutStore(s => s.toggleTimestamps);
   const cycleMinimap = useLayoutStore(s => s.cycleMinimap);
   const toggleSoftWrap = useLayoutStore(s => s.toggleSoftWrap);
+  const toggleScrollRail = useLayoutStore(s => s.toggleScrollRail);
   const cycleSigilBadge = useLayoutStore(s => s.cycleSigilBadge);
   const cycleSigilCorner = useLayoutStore(s => s.cycleSigilCorner);
   const toggleSigilBackdrop = useLayoutStore(s => s.toggleSigilBackdrop);
@@ -637,6 +638,7 @@ function TabBar({ paneId, pane, isFocused: _isFocused, sessions, hosts }: TabBar
   const minimapMode = paneMinimapMode(pane);
   const showMinimap = minimapMode !== 'off';
   const softWrap = !!pane.softWrap;
+  const showRail = paneScrollRail(pane);
   const sigilBadge = paneSigilBadge(pane);
   const sigilCorner = paneSigilCorner(pane);
   const sigilBackdrop = paneSigilBackdrop(pane);
@@ -812,6 +814,16 @@ function TabBar({ paneId, pane, isFocused: _isFocused, sessions, hosts }: TabBar
           onClick={() => toggleSoftWrap(paneId)} style={toggleBtnStyle(softWrap)}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path d="M4 6h16M4 12h13a3 3 0 0 1 0 6h-4m0 0l2-2m-2 2l2 2M4 18h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        {/* Scroll-rail toggle (per-pane). Off by default — it reserves a column of
+            text width whether or not you look at it. */}
+        <button title={showRail ? 'Scroll rail ON — click to hide it and give the column back to text' : 'Show the thin scroll rail (reserves a little width)'}
+          onClick={() => toggleScrollRail(paneId)} style={toggleBtnStyle(showRail)}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <rect x="16" y="3" width="4" height="18" rx="2" stroke="currentColor" strokeWidth="2" />
+            <rect x="16.5" y="7" width="3" height="7" rx="1.5" fill="currentColor" />
+            <path d="M4 6h8M4 12h8M4 18h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </button>
         {/* Sigil badge (per-pane): click cycles mark → labeled → off; shift-click

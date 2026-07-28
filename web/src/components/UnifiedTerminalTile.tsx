@@ -33,7 +33,7 @@ import { useUnwrapCopy } from '../hooks/useUnwrapCopy';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { useConnectionStore } from '../stores/connectionStore';
-import { useLayoutStore, paneMinimapMode } from '../stores/layoutStore';
+import { useLayoutStore, paneMinimapMode, paneScrollRail } from '../stores/layoutStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useInputStore } from '../stores/inputStore';
 
@@ -118,7 +118,11 @@ export function UnifiedTerminalTile({
   const showMinimap = minimapMode !== 'off';   // the WIDE minimap (off by default)
   const RAIL_W = 11;                            // always-on thin scroll rail (docked, full height)
   const MINIMAP_W = 64;                         // wide minimap, left of the rail
-  const railReserve = RAIL_W + 8;               // the rail always reserves → text wraps before it
+  const showRail = useLayoutStore(s => paneScrollRail(s.panes.get(paneId)));
+  // Reserve ONLY when the rail is actually drawn. The reserve and the render must
+  // agree: reserve without drawing wastes a column, drawing without reserving puts
+  // the rail on top of the last glyph (the original clipping bug).
+  const railReserve = showRail ? RAIL_W + 8 : 0;
   const minimapReserve = minimapMode === 'docked' ? MINIMAP_W + 6 : 0; // wide docked also reserves
   const dockReserve = railReserve + minimapReserve;
   const minimapFrac = useLayoutStore(s => s.panes.get(paneId)?.minimapHeight ?? 0.5);
@@ -1088,9 +1092,11 @@ export function UnifiedTerminalTile({
       )}
     </div>
 
-      {/* Always-on thin scroll rail — full pane height, docked at the right edge;
-          text wraps before it (railReserve). Same minimap texture, narrow. */}
-      {history.length > 0 && (
+      {/* Thin scroll rail — full pane height, docked at the right edge; text wraps
+            before it (railReserve). OFF by default: the unified scrollback already
+            scrolls by wheel and drag-scrub, so the rail is a position cue you opt
+            into rather than a column of width every pane pays. */}
+        {showRail && history.length > 0 && (
         <div
           style={{
             position: 'absolute', right: 6, top: 8, bottom: 8, width: RAIL_W,

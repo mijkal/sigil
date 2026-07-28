@@ -123,6 +123,15 @@ body {
    Honours prefers-reduced-motion below. */
 @keyframes sigil-spin { to { transform: rotate(360deg); } }
 
+/* The whole session mark, breathing while its agent works. Scale as well as
+   opacity: a pure opacity float reads as "slightly dim" rather than as motion,
+   which is the complaint that prompted this. Kept gentle — a sidebar of busy
+   sessions should look alive, not agitated. */
+@keyframes sigil-mark-pulse {
+  0%, 100% { opacity: 0.62; transform: scale(0.94); }
+  50%      { opacity: 1;    transform: scale(1.04); }
+}
+
 .sigil-working-arc {
   border-radius: 50%;
   border: 1.5px solid transparent;

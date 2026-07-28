@@ -34,6 +34,7 @@ export interface PaneConfig {
   sigilBadge?: SigilBadgeMode;      // floating session-sigil badge (default 'labeled')
   sigilBadgeCorner?: SigilBadgeCorner; // which corner it floats in (default 'tr')
   sigilBackdrop?: boolean;          // large faint session sigil behind the CLI text (default off)
+  showScrollRail?: boolean;         // thin scroll rail beside the pane (default OFF)
 }
 
 // Effective WIDE-minimap mode for a pane. Default is OFF (rail only); legacy 'thin'
@@ -52,6 +53,14 @@ export function paneSigilCorner(pane?: PaneConfig | null): SigilBadgeCorner {
   const c = pane?.sigilBadgeCorner;
   return (c === 'tl' || c === 'tr' || c === 'bl' || c === 'br') ? c : 'tr';
 }
+// The thin scroll rail. Default OFF: the unified scrollback already scrolls with the
+// wheel and drag-scrub, so for most panes the rail is decoration that costs a column
+// of text width — it must be RESERVED whether or not it is drawn, or glyphs run under
+// it. Opt in per pane when you want the position cue.
+export function paneScrollRail(pane?: PaneConfig | null): boolean {
+  return pane?.showScrollRail === true;
+}
+
 export function paneSigilBackdrop(pane?: PaneConfig | null): boolean {
   return pane?.sigilBackdrop !== false; // default ON; only an explicit false disables it
 }
@@ -75,6 +84,7 @@ interface LayoutStore {
   cycleSigilBadge: (paneId: string) => void;    // labeled -> mark -> off
   cycleSigilCorner: (paneId: string) => void;   // tr -> br -> bl -> tl
   toggleSigilBackdrop: (paneId: string) => void; // large faint sigil behind the CLI
+  toggleScrollRail: (paneId: string) => void;   // thin scroll rail (default off)
   setTabChannelId: (paneId: string, tabIdx: number, channelId: string | undefined) => void;
 
   // Pane operations
@@ -326,6 +336,14 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
     if (!pane) return {};
     const newPanes = new Map(state.panes);
     newPanes.set(paneId, { ...pane, sigilBackdrop: !paneSigilBackdrop(pane) });
+    return { panes: newPanes };
+  }),
+
+  toggleScrollRail: (paneId) => set(state => {
+    const pane = state.panes.get(paneId);
+    if (!pane) return {};
+    const newPanes = new Map(state.panes);
+    newPanes.set(paneId, { ...pane, showScrollRail: !paneScrollRail(pane) });
     return { panes: newPanes };
   }),
 }));

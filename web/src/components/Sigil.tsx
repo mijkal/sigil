@@ -166,16 +166,24 @@ export function SessionGlyph({ name, color, size = 16, activity, active, idleCol
   const ps = Math.max(4, Math.round(size * 0.34));
   return (
     <span style={{ position: 'relative', display: 'inline-flex', flexShrink: 0, width: size, height: size }}>
-      <IdentityMark host={host} session={session} name={name} color={color} size={size} glow={false} />
-      <span
-        key={activity ?? (active ? 'active' : 'idle')}
-        title={st.title}
-        style={{
-          position: 'absolute', right: -1, bottom: -1,
-          // A panel-coloured ring separates the pip from the mark it sits over.
-          ...activityDotStyle({ st, size: ps, background: pip, shape, ring: 'var(--color-panel)' }),
-        }}
-      />
+      {/* The mark itself breathes while working — a whole-glyph cue you catch in
+          peripheral vision, where a 5px pip alone is easy to miss. */}
+      <span style={activity === 'working'
+        ? { display: 'inline-flex', animation: 'sigil-mark-pulse 1.9s ease-in-out infinite' }
+        : { display: 'inline-flex' }}>
+        <IdentityMark host={host} session={session} name={name} color={color} size={size} glow={false} />
+      </span>
+      {activity === 'working' ? (
+        // A spinning ring, not a filled pip: motion is what separates "mid-task"
+        // from "stopped" at a glance, and nothing else in the sidebar rotates.
+        <span key="working" title={st.title} className="sigil-working-arc"
+          style={{ position: 'absolute', right: -1, bottom: -1, width: ps + 1, height: ps + 1,
+            filter: 'drop-shadow(0 0 0.7px var(--color-panel)) drop-shadow(0 0 0.7px var(--color-panel))' }} />
+      ) : (
+        <span key={activity ?? (active ? 'active' : 'idle')} title={st.title}
+          style={{ position: 'absolute', right: -1, bottom: -1,
+            ...activityDotStyle({ st, size: ps, background: pip, shape, ring: 'var(--color-panel)' }) }} />
+      )}
     </span>
   );
 }
