@@ -1,12 +1,19 @@
 # Sigil
 
-**A self-hosted hub for your terminal sessions.** Sigil SSHes into your machines,
-attaches to `tmux`, and serves every session as a fast, persistent web terminal —
-one browser tab for your whole fleet, on desktop or phone.
+**A self-hosted hub for your terminal sessions — and for the AI coding agents
+running inside them.** Sigil SSHes into your machines, attaches to `tmux`, and
+serves every session as a fast, persistent web terminal — one browser tab for
+your whole fleet, on desktop or phone.
 
 It is a single Go daemon (`sigild`) plus a React/xterm.js web client. Point it at
 your hosts, open the web UI, and your named tmux sessions are all there:
 reconnect-safe, searchable, with live host metrics and reactive output triggers.
+
+If you run **long-running coding agents** (Claude Code, Codex CLI) on remote
+hosts, Sigil is built for the part that actually hurts: knowing which sessions
+are working, which are blocked waiting on you, and what they are costing —
+without SSHing into six boxes to find out. See
+[Supervising coding agents](#supervising-coding-agents).
 
 ![Sigil — three live tmux sessions from one host, split across panes](docs/img/sigil.png)
 
@@ -31,6 +38,40 @@ reconnect-safe, searchable, with live host metrics and reactive output triggers.
 - **Files & media** — browse/upload (drag-drop) files, inline image preview,
   host↔host transfer, and "insert path into the focused terminal".
 - **Search** — full-text search across captured scrollback (SQLite FTS5).
+- **Agent supervision** — detects whether a Claude Code / Codex CLI session is
+  *working*, *waiting on you*, or *done*, and reports per-provider token usage.
+
+## Supervising coding agents
+
+A coding agent left running on a remote host has three states you care about, and
+a terminal alone tells you none of them at a glance: it is **working**, it is
+**blocked waiting for your approval**, or it is **done**. Sigil reads the session
+itself and answers that across the whole fleet.
+
+- **Session state detection.** Sigil classifies live output from **Claude Code**
+  and **Codex CLI** into `working` / `waiting` / `done` — permission prompts,
+  approval prompts (`Allow Codex to run …?`), spinner frames, and idle shells,
+  including the narrow-pane and reflowed variants. The classifier is tested
+  against real captured sessions, because the naive version shipped once and got
+  it wrong in production.
+- **"Needs you" signals.** Each session carries a glyph — ● working · ◆ needs you
+  · ● connected · ○ idle — so a blocked agent is visible from the session list,
+  the TUI, or your phone, instead of being discovered an hour later.
+- **Token / cost burndown.** `GET /api/v1/agent-usage?host=…&provider=claude|codex`
+  aggregates the provider's own local transcripts
+  (`~/.claude/projects/**/*.jsonl`, `~/.codex/**/*.jsonl`) into usage per host.
+  There is no scriptable `claude usage` command; this fills that gap.
+- **Triggers → webhooks.** Match a regex against session output and fire an
+  HMAC-signed webhook (or a flash, tint, beep, or toast). This is the hook for
+  routing a blocked agent into Slack, Telegram, or your own orchestrator.
+- **Auto-resurrection.** Named sessions come back after a tmux or host restart,
+  so an overnight run survives the kind of failure that otherwise ends it
+  silently.
+- **Machine-readable diagnostics.** `sigil doctor --json` is meant to be read by
+  a script — or by an agent debugging its own environment.
+
+Sigil does not run or schedule agents. It is the **supervision and observability
+layer** for agents you are already running under `tmux`.
 
 ## Quick start
 
