@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sigil — a self-hosted hub for your terminal sessions</title>
+<meta name="description" content="Sigil SSHes into your machines, attaches to tmux, and serves every session as a fast, persistent web terminal. One browser tab for your whole fleet.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Sigil — a self-hosted hub for your terminal sessions">
+<meta property="og:description" content="SSH + tmux, served as fast, persistent web terminals. One browser tab for your whole fleet.">
+<meta property="og:image" content="https://mijkal.github.io/sigil/sigil.png">
+<meta property="og:url" content="https://mijkal.github.io/sigil/">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root{
+    --bg:#0A0A0C; --panel:#111318; --panel-alt:#151820; --border:#1E2330;
+    --accent:#6366F1; --accent-dim:rgba(99,102,241,.15);
+    --text:#E2E8F0; --muted:#64748B; --success:#22C55E;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:980px;margin:0 auto;padding:0 24px}
+
+  /* faint constellation wash, echoing the app's own backdrop */
+  header{
+    position:relative;overflow:hidden;
+    padding:76px 0 56px;text-align:center;
+    border-bottom:1px solid var(--border);
+    background:
+      radial-gradient(1100px 460px at 50% -10%, rgba(99,102,241,.16), transparent 70%),
+      linear-gradient(180deg,#0B0B10,var(--bg));
+  }
+  .mark{width:60px;height:60px;margin:0 auto 14px;display:block}
+  h1{margin:0;font-size:clamp(34px,6vw,52px);letter-spacing:.18em;font-weight:600}
+  .tag{margin:12px auto 0;max-width:640px;color:var(--muted);font-size:clamp(16px,2.2vw,19px)}
+  .cta{margin-top:30px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn{
+    display:inline-block;padding:11px 22px;border-radius:8px;font-weight:600;font-size:15px;
+    border:1px solid var(--border);background:var(--panel-alt);color:var(--text);
+  }
+  .btn:hover{border-color:var(--accent);text-decoration:none}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{filter:brightness(1.1)}
+
+  .shot{margin:44px auto 0;max-width:1180px;padding:0 24px}
+  .shot img{
+    width:100%;height:auto;display:block;border-radius:12px;
+    border:1px solid var(--border);box-shadow:0 24px 70px rgba(0,0,0,.6);
+  }
+  .caption{margin-top:12px;text-align:center;color:var(--muted);font-size:13.5px}
+
+  section{padding:60px 0}
+  h2{font-size:26px;margin:0 0 8px}
+  .lede{color:var(--muted);margin:0 0 28px}
+
+  .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .card{
+    background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px 22px;
+  }
+  .card h3{margin:0 0 6px;font-size:16px}
+  .card p{margin:0;color:var(--muted);font-size:14.5px;line-height:1.6}
+
+  pre{
+    background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.75;
+  }
+  code{font-family:var(--mono)}
+  .c{color:var(--muted)}
+  .g{color:var(--success)}
+  .a{color:var(--accent)}
+
+  .note{
+    border-left:3px solid var(--accent);background:var(--accent-dim);
+    padding:14px 18px;border-radius:0 8px 8px 0;color:#CBD5E1;font-size:14.5px;
+  }
+  footer{
+    border-top:1px solid var(--border);padding:34px 0 56px;
+    color:var(--muted);font-size:14px;text-align:center;
+  }
+  footer a{color:var(--muted);text-decoration:underline}
+  footer a:hover{color:var(--accent)}
+  @media (max-width:640px){ section{padding:44px 0} header{padding:56px 0 42px} }
+</style>
+</head>
+<body>
+
+<header>
+  <svg class="mark" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+    <path d="M68 22c-8-7-22-8-30-1s-7 18 2 23l16 9c9 5 10 16 2 23s-22 6-30-1"
+          stroke="#6366F1" stroke-width="7" stroke-linecap="round"/>
+  </svg>
+  <h1>SIGIL</h1>
+  <p class="tag">A self-hosted hub for your terminal sessions. SSH into your machines,
+     attach to <code>tmux</code>, and get every session as a fast, persistent web
+     terminal — one browser tab for your whole fleet.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/mijkal/sigil">View on GitHub</a>
+    <a class="btn" href="https://github.com/mijkal/sigil/blob/main/docs/SETUP.md">Set it up</a>
+  </div>
+</header>
+
+<div class="shot">
+  <img src="sigil.png" alt="Sigil showing three live tmux sessions from one host, split across panes">
+  <p class="caption">Three tmux sessions on one host, split across panes — live, reconnect-safe, in a browser.</p>
+</div>
+
+<section class="wrap">
+  <h2>What it actually is</h2>
+  <p class="lede">A single Go daemon plus a web client. Nothing is installed on the machines you manage.</p>
+  <div class="grid">
+    <div class="card">
+      <h3>No agent on your hosts</h3>
+      <p>Sigil connects outward over SSH to machines you already have access to. A host needs
+         sshd, tmux and a shell — nothing else, and nothing new to trust.</p>
+    </div>
+    <div class="card">
+      <h3>Your sessions survive</h3>
+      <p>tmux already keeps work alive across disconnects. Sigil adds replay-then-live
+         reconnect, so a dropped tab resumes exactly where it left off with no lost output.</p>
+    </div>
+    <div class="card">
+      <h3>Scrollback that copies properly</h3>
+      <p>History is kept as logical lines, so copying doesn't inject hard wraps, text reflows
+         to any width, and URLs stay intact and clickable.</p>
+    </div>
+    <div class="card">
+      <h3>Tiling, tabs and mobile</h3>
+      <p>Split panes and tabbed sessions on the desktop; a thumb-friendly layout with a bottom
+         session strip on the phone. Installable as a PWA.</p>
+    </div>
+    <div class="card">
+      <h3>Live host metrics</h3>
+      <p>CPU, load, memory (PSI-aware), disk, network and top processes per host, collected
+         over the same SSH connection.</p>
+    </div>
+    <div class="card">
+      <h3>Triggers on output</h3>
+      <p>Match a regex against a session's output and fire an effect: flash the pane, tint it,
+         beep, toast, or call an HMAC-signed webhook.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>Get it running</h2>
+  <p class="lede">Two processes and one TOML file. Full walkthrough in
+     <a href="https://github.com/mijkal/sigil/blob/main/docs/SETUP.md">SETUP.md</a>.</p>
+<pre><span class="c"># build</span>
+git clone https://github.com/mijkal/sigil.git &amp;&amp; cd sigil
+make setup-config <span class="c"># writes ~/.config/sigil/config.toml</span>
+make build-web &amp;&amp; make build
+
+<span class="c"># configure: a token, and a host you can already ssh to</span>
+<span class="a">openssl</span> rand -hex 32 <span class="c"># put this in hub.auth.tokens</span>
+
+<span class="c"># run — the hub on :7778, the web client on :7777</span>
+./dist/sigild --config ~/.config/sigil/config.toml
+./dist/sigil-web -dir ./web/dist -backend http://127.0.0.1:7778
+
+<span class="c"># if anything is wrong, ask it</span>
+sigil doctor <span class="c"># every failing check names the fix</span>
+sigil doctor --json <span class="c"># same, for a script or an LLM agent</span></pre>
+</section>
+
+<section class="wrap">
+  <h2>Before you expose it</h2>
+  <p class="note">
+    <strong>Sigil is a remote shell.</strong> A valid token is equivalent to shell access on
+    every host you configure, and captured scrollback persists whatever your terminals
+    printed — including secrets you echoed. Run it on a trusted network (LAN, VPN, Tailscale)
+    or behind a TLS-terminating proxy, and read
+    <a href="https://github.com/mijkal/sigil/blob/main/SECURITY.md">SECURITY.md</a> first.
+  </p>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>
+      <a href="https://github.com/mijkal/sigil">Source</a> ·
+      <a href="https://github.com/mijkal/sigil/blob/main/docs/SETUP.md">Setup</a> ·
+      <a href="https://github.com/mijkal/sigil/blob/main/docs/CONFIGURATION.md">Configuration</a> ·
+      <a href="https://github.com/mijkal/sigil/blob/main/docs/API.md">API</a> ·
+      <a href="https://github.com/mijkal/sigil/issues">Issues</a>
+    </p>
+    <p>MIT licensed · terminals by <a href="https://xtermjs.org">xterm.js</a> ·
+       full attribution in <a href="https://github.com/mijkal/sigil/blob/main/NOTICE">NOTICE</a></p>
+    <p>© 2026 <a href="https://michaelgifford.com">Michael Gifford-Santos</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
