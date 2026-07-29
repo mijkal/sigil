@@ -189,6 +189,12 @@ cd web && npm run lint    # eslint + the no-raw-hex colour guard
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Colophon
+
+Sigil was designed and directed by Michael Gifford-Santos and implemented
+with Claude Code — the same kind of long-running agent Sigil exists to
+supervise.
+
 ## License
 
 [MIT](LICENSE) © 2026 Michael Gifford-Santos
