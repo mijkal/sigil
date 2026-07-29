@@ -61,9 +61,9 @@ describe('toastStore coalescing', () => {
     for (let i = 0; i < 20; i++) {
       push({
         type: 'error',
-        title: 'Channel error — jupiter:nextstep',
+        title: 'Channel error — buildbox:api-dev',
         message: `ch_${i} exited with status 1`,
-        dedupeKey: 'channel.error|jupiter:nextstep',
+        dedupeKey: 'channel.error|buildbox:api-dev',
       });
     }
     const { toasts } = useToastStore.getState();

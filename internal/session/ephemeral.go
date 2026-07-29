@@ -16,7 +16,7 @@ import (
 // long ago. The replacement is owned by nobody and deleted by nobody, so it lives
 // forever and is resurrected again on the next restart. One tmux restart
 // resurrected 42 at once; the giveaway is a cluster of rows sharing an identical
-// idle time. jupiter reached 50 rows this way, which exhausted the host's SSH
+// idle time. one host reached 50 rows this way, which exhausted the host's SSH
 // MaxSessions (default 10) and got seven real sessions pruned as collateral — see
 // attachguard.go for that half of the story.
 //

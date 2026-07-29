@@ -120,9 +120,9 @@ func TestAttachGuard_ForgetClearsState(t *testing.T) {
 }
 
 func TestErrAttachCoolingDown_MessageIsActionable(t *testing.T) {
-	e := &ErrAttachCoolingDown{Target: "jupiter:nextstep", Retry: 42 * time.Second}
+	e := &ErrAttachCoolingDown{Target: "buildbox:api-dev", Retry: 42 * time.Second}
 	msg := e.Error()
-	for _, want := range []string{"jupiter:nextstep", "42s", "no longer exists"} {
+	for _, want := range []string{"buildbox:api-dev", "42s", "no longer exists"} {
 		if !contains(msg, want) {
 			t.Fatalf("error message %q missing %q — the UI needs to say something true", msg, want)
 		}

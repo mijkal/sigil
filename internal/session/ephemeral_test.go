@@ -7,7 +7,7 @@ import (
 )
 
 // Cover for the zombie factory described in ephemeral.go: auto-resurrect
-// recreating single-shot orchestrator sessions forever, which is what let jupiter
+// recreating single-shot orchestrator sessions forever, which is what let one host
 // reach 50 rows and exhaust its SSH channels.
 
 func TestIsEphemeralName_Defaults(t *testing.T) {
@@ -27,8 +27,8 @@ func TestIsEphemeralName_Defaults(t *testing.T) {
 	// Real sessions — every one of these was destroyed in the incident and must
 	// never be classified as disposable.
 	keep := []string{
-		"nextstep", "mycellm", "kwanchai", "ensembl", "bridge-eng",
-		"Dodecki", "dodecki-logs", "general", "utopia", "wg-metro",
+		"api-dev", "web-dev", "release", "logs", "notes",
+		"Deploy", "deploy-logs", "general", "scratch", "metro",
 		// Anchoring: filepath.Match must not match a prefix or a substring.
 		"my-hostsh-thing", "not-hostsh-1", "xhostsh-1", "HOSTSH-1", "mctaskish",
 	}
@@ -62,7 +62,7 @@ func TestSetEphemeralPatterns_MalformedGlobIsDroppedNotWidened(t *testing.T) {
 		t.Fatal("valid pattern stopped working after a bad one was dropped")
 	}
 	// ...and the bad one did NOT become a match-everything.
-	if m.IsEphemeralName("nextstep") {
+	if m.IsEphemeralName("api-dev") {
 		t.Fatal("a malformed glob must not widen the policy — this would silently disable auto-resurrect")
 	}
 }

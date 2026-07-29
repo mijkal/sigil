@@ -14,7 +14,7 @@ func newDegradedTestManager() *Manager {
 }
 
 // The scenario these lock down: on 2026-07-29 a client retry loop exhausted
-// jupiter's SSH channels, `tmux list-sessions` returned a partial list, the prune
+// a host's SSH channels, `tmux list-sessions` returned a partial list, the prune
 // path believed it, and seven healthy sessions were deleted from the DB — after
 // which auto-resurrect had nothing to restore.
 
@@ -46,10 +46,10 @@ func TestDegraded_ClearsMissCountsIsCallerSide(t *testing.T) {
 	// counters. Verify the guard does not mutate them, so the two concerns stay
 	// separable.
 	m := newDegradedTestManager()
-	m.missCounts["h:nextstep"] = 2
+	m.missCounts["h:api-dev"] = 2
 	m.discoveryLooksDegraded("h", 30, 30)
 	m.discoveryLooksDegraded("h", 0, 30)
-	if m.missCounts["h:nextstep"] != 2 {
+	if m.missCounts["h:api-dev"] != 2 {
 		t.Fatal("guard should not touch miss counters")
 	}
 }
