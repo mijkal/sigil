@@ -37,6 +37,32 @@ type DiscoveryConfig struct {
 	IntervalSeconds int `toml:"interval_seconds"`
 }
 
+// SessionsConfig holds session-lifecycle policy.
+type SessionsConfig struct {
+	// EphemeralPatterns are globs (filepath.Match, matched against the whole
+	// session name) for sessions that are single-shot by nature and must NOT be
+	// recreated by auto-resurrect.
+	//
+	// WHY THIS EXISTS: an orchestrator that spawns one tmux session per command
+	// (Drydock uses `hostsh-<id>` and `mctask-<id>`) creates, reads and deletes
+	// them. Both its paths do delete correctly. The zombie factory was
+	// auto-resurrect: when a tmux server restarts, sigild recreates EVERY
+	// detached DB row — including ephemerals whose owning run ended long ago.
+	// The replacement is owned by nobody and deleted by nobody, so it survives
+	// forever and gets resurrected again on the next restart. One tmux restart
+	// resurrected 42 at once. jupiter reached 50 rows, which then exhausted the
+	// host's SSH MaxSessions and got real sessions pruned as collateral (see
+	// internal/session/attachguard.go).
+	//
+	// Not resurrecting is enough — the existing miss-threshold prune reclaims the
+	// row. There is deliberately NO delete path here: sigild does not own these
+	// sessions and must not race their owner.
+	//
+	// An explicitly empty list restores the pre-policy behaviour (resurrect
+	// everything). A malformed glob is ignored rather than matching everything.
+	EphemeralPatterns []string `toml:"ephemeral_patterns"`
+}
+
 // WebhooksConfig holds webhook configuration
 type WebhooksConfig struct {
 	Enabled bool `toml:"enabled"`
@@ -57,6 +83,7 @@ type HubConfig struct {
 	Auth       AuthConfig       `toml:"auth"`
 	Scrollback ScrollbackConfig `toml:"scrollback"`
 	Discovery  DiscoveryConfig  `toml:"discovery"`
+	Sessions   SessionsConfig   `toml:"sessions"`
 	Webhooks   WebhooksConfig   `toml:"webhooks"`
 	Metrics    MetricsConfig    `toml:"metrics"`
 
@@ -136,6 +163,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Hub.Discovery.IntervalSeconds == 0 {
 		cfg.Hub.Discovery.IntervalSeconds = 10
+	cfg.Hub.Sessions.EphemeralPatterns = DefaultEphemeralPatterns()
+	}
+	// nil means the key was absent → apply defaults. An explicitly empty list is
+	// a deliberate opt-out and is left alone.
+	if cfg.Hub.Sessions.EphemeralPatterns == nil {
+		cfg.Hub.Sessions.EphemeralPatterns = DefaultEphemeralPatterns()
 	}
 	if cfg.Hub.Metrics.IntervalSeconds == 0 {
 		cfg.Hub.Metrics.IntervalSeconds = 5
@@ -179,4 +212,10 @@ func applyDefaults(cfg *Config) {
 	cfg.Hub.Metrics.IntervalSeconds = 5
 	cfg.Hub.HostKeyMode = "tofu"
 	cfg.Hub.KnownHostsPath = "~/.ssh/known_hosts"
+}
+
+// DefaultEphemeralPatterns is the built-in ephemeral-session glob set. Kept as a
+// function so callers cannot mutate a shared slice.
+func DefaultEphemeralPatterns() []string {
+	return []string{"hostsh-*", "mctask-*"}
 }

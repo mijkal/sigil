@@ -47,6 +47,25 @@ retention_days    = 90
 [hub.discovery]
 interval_seconds = 5
 
+# Session-lifecycle policy.
+[hub.sessions]
+# Globs for sessions that are single-shot by nature and must NEVER be recreated
+# by auto-resurrect. Matched against the whole session name (filepath.Match, so
+# "hostsh-*" does not match "my-hostsh-thing").
+#
+# WHY: an orchestrator that spawns one tmux session per command creates, reads
+# and deletes them. When a tmux server restarts, sigild would otherwise recreate
+# every detached row — including these, whose owning run ended long ago. The
+# replacement is owned by nobody and deleted by nobody, so it survives forever
+# and is resurrected again on the next restart. That is how a host reaches 50
+# sessions, exhausts its SSH MaxSessions (default 10), and starts losing REAL
+# sessions to the miss-threshold prune.
+#
+# Omit the key to get the defaults below. Set it to an explicitly empty list
+# to opt out and resurrect everything. Invalid globs are ignored (and logged),
+# never widened to match everything.
+ephemeral_patterns = ["hostsh-*", "mctask-*"]
+
 [hub.webhooks]
 enabled = false
 

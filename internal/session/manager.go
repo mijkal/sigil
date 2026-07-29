@@ -278,6 +278,15 @@ type Manager struct {
 	// discovery from the active pane command + output recency. NOT persisted —
 	// merged into the session list at broadcast time. See sigil.Session.Activity.
 	activityBySession map[string]string
+	// Highest number of live sessions a successful discovery has ever seen on a
+	// host. A sudden cliff means the enumeration failed, not that the sessions
+	// died — see the degraded-discovery guard in the prune path.
+	peakSeen map[string]int
+
+	// Ephemeral-session policy: names matching these globs are never
+	// auto-resurrected. See ephemeral.go for why.
+	ephemeral *ephemeralMatcher
+
 	// Trips a cooldown on attach targets that keep failing fast, so a wedged
 	// client cannot exhaust a host's SSH channels and starve discovery for every
 	// other session on it. See attachguard.go for the incident this prevents.
@@ -372,6 +381,8 @@ func New(pool *sshpool.Pool, d *db.DB, events chan<- sigil.Event) *Manager {
 		channels:          make(map[string]*Channel),
 		clients:           make(map[string]*tmuxClient),
 		attachGuard:       newAttachGuard(),
+		ephemeral:         newEphemeralMatcher(nil),
+		peakSeen:          make(map[string]int),
 		activityBySession: make(map[string]string),
 		signalBySession:   make(map[string]*hookSignal),
 		logSizeBySession:  make(map[string]int64),
@@ -842,7 +853,32 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 			Str("host", hostName).
 			Int("existing", len(existing)).
 			Msg("auto-resurrect still in flight — skipping prune this cycle")
+	} else if degraded, peak := m.discoveryLooksDegraded(hostName, len(sessions), len(existing)); degraded {
+		// Discovery RAN but came back implausibly thin. This is the 2026-07-29
+		// failure: a client retry loop had exhausted the host's SSH channels
+		// (MaxSessions defaults to 10), so `tmux list-sessions` returned a partial
+		// view. The old code trusted it, counted healthy sessions as missing, and
+		// pruned them — after which auto-resurrect had no row to restore and the
+		// loss was permanent.
+		//
+		// A miss caused by our own inability to look is not evidence that a
+		// session is gone. Hold the counters and wait for a cycle we can believe.
+		m.log.Warn().
+			Str("host", hostName).
+			Int("seen", len(sessions)).
+			Int("peak_seen", peak).
+			Int("existing", len(existing)).
+			Msg("discovery returned implausibly few sessions — skipping prune (likely SSH channel exhaustion, not session death)")
+		m.missMu.Lock()
+		for _, s := range existing {
+			delete(m.missCounts, s.ID)
+		}
+		m.missMu.Unlock()
 	} else {
+		// This discovery is believed, so let the peak drift toward reality —
+		// otherwise a host that genuinely shrank would be measured against a peak
+		// it will never reach again and pruning would be suppressed forever.
+		m.decayPeak(hostName, len(sessions))
 		m.missMu.Lock()
 		for _, s := range existing {
 			if _, live := sessions[s.Name]; live {
@@ -1607,13 +1643,21 @@ func (m *Manager) autoResurrectHost(hostName string) {
 		m.log.Error().Err(err).Str("host", hostName).Msg("auto-resurrect: get sessions failed")
 		return
 	}
-	var revived, alive, failed int
+	var revived, alive, failed, skippedEphemeral int
 	// Don't trust the row's Status field — when tmux dies the in-DB status
 	// stays "active" until discovery updates it, so skipping based on Status
 	// would miss exactly the rows that need restoring. EnsureSession's probe
 	// is the source of truth; one extra SSH round-trip per row is cheap and
 	// only runs on transitions / throttled down-state retries.
 	for _, s := range rows {
+		// Never recreate a single-shot session. Its owning run is long gone; a
+		// replacement would be owned by nobody, deleted by nobody, and
+		// resurrected again on every future restart. Leaving it out lets the
+		// miss-threshold prune reclaim the row. See ephemeral.go.
+		if m.IsEphemeralName(s.Name) {
+			skippedEphemeral++
+			continue
+		}
 		created, err := m.EnsureSession(hostName, s.Name, s.StartDir, s.StartCmd)
 		if err != nil {
 			failed++
@@ -1630,6 +1674,7 @@ func (m *Manager) autoResurrectHost(hostName string) {
 	}
 	m.log.Info().
 		Str("host", hostName).
+		Int("skipped_ephemeral", skippedEphemeral).
 		Int("revived", revived).
 		Int("already_alive", alive).
 		Int("failed", failed).

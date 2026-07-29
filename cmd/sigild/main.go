@@ -122,6 +122,15 @@ func main() {
 	// Init session manager
 	sessionMgr := session.New(pool, database, eventCh)
 	sessionMgr.SetLogger(logger.With().Str("component", "session-mgr").Logger())
+	// Ephemeral-session policy: single-shot orchestrator sessions must never be
+	// auto-resurrected, or they accumulate forever and exhaust the host's SSH
+	// channels. See internal/session/ephemeral.go.
+	if dropped := sessionMgr.SetEphemeralPatterns(cfg.Hub.Sessions.EphemeralPatterns); len(dropped) > 0 {
+		logger.Warn().Strs("dropped", dropped).
+			Msg("ignoring invalid hub.sessions.ephemeral_patterns entries (not valid globs)")
+	}
+	logger.Info().Strs("ephemeral_patterns", sessionMgr.EphemeralPatterns()).
+		Msg("ephemeral session policy active (these are never auto-resurrected)")
 
 	// Init scrollback engine
 	sbEngine := scrollback.New(database, cfg.Hub.Scrollback.FlushIntervalMs)
