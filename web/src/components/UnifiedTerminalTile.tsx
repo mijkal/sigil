@@ -515,7 +515,14 @@ export function UnifiedTerminalTile({
     // a tight attach loop.
     let reattachAttempts = 0;
     let reattachTimer: ReturnType<typeof setTimeout> | undefined;
+    let attachedAt = 0;
     const MAX_REATTACH = 12;
+    // See TerminalTile: the hub emits channel.attached before `tmux attach` can
+    // fail, so a dead session still yields a brief attached/closed pair. Only a
+    // channel that survives DURABLE_MS counts as success — otherwise the counter
+    // reset below makes this backoff dead code and the pane spins ~2 attaches/sec
+    // against a session that no longer exists.
+    const DURABLE_MS = 10_000;
     const scheduleReattach = () => {
       if (reattachTimer || channelIdRef.current) return;
       if (reattachAttempts >= MAX_REATTACH) return;
@@ -559,7 +566,7 @@ export function UnifiedTerminalTile({
       const cid = chId || p.channel_id;
       if (p.host_name === hostName && p.session_name === sessionName && cid) {
         channelIdRef.current = cid;
-        reattachAttempts = 0;
+        attachedAt = Date.now();
         setTabChannelId(paneId, tabIdx, cid);
         if (pendingResizeRef.current) {
           client.resize(cid, pendingResizeRef.current.rows, pendingResizeRef.current.cols);
@@ -616,9 +623,12 @@ export function UnifiedTerminalTile({
 
     const unsubClosed = client.on('channel.closed', (_payload, chId) => {
       if (chId !== channelIdRef.current) return;
+      // Only a durable channel counts as a successful attach; see DURABLE_MS.
+      if (attachedAt && Date.now() - attachedAt >= DURABLE_MS) reattachAttempts = 0;
+      attachedAt = 0;
       channelIdRef.current = null;
-      // Resurrect the live channel — the tmux session is almost always still
-      // alive; only the sigil channel dropped.
+      // Resurrect the live channel — the tmux session is usually still alive and
+      // only the sigil channel dropped. If it isn't, the backoff gives up.
       scheduleReattach();
     });
 

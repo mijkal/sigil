@@ -268,7 +268,17 @@ export function TerminalTile({
     // a tight attach loop.
     let reattachAttempts = 0;
     let reattachTimer: ReturnType<typeof setTimeout> | undefined;
+    let attachedAt = 0;
     const MAX_REATTACH = 12;
+    // A channel must survive this long before we call the attach a success. The
+    // hub emits channel.attached as soon as the remote process spawns, which is
+    // *before* `tmux attach` can fail — so a dead session still produces a brief
+    // attached/closed pair. Resetting the counter on attach alone therefore made
+    // the backoff below dead code: every cycle reset it to 500ms and MAX_REATTACH
+    // was never reached, spinning ~2 attaches/sec against a session that no longer
+    // exists (which starves the host's sshd MaxSessions and hides its other
+    // sessions from the sidebar).
+    const DURABLE_MS = 10_000;
     const scheduleReattach = () => {
       if (reattachTimer || channelIdRef.current) return;
       if (reattachAttempts >= MAX_REATTACH) return;
@@ -311,7 +321,7 @@ export function TerminalTile({
       const cid = chId || p.channel_id;
       if (p.host_name === hostName && p.session_name === sessionName && cid) {
         channelIdRef.current = cid;
-        reattachAttempts = 0;
+        attachedAt = Date.now();
         setTabChannelId(paneId, tabIdx, cid);
         // Flush any resize that arrived before the channel was known
         if (pendingResizeRef.current) {
@@ -366,12 +376,20 @@ export function TerminalTile({
     const unsubClosed = client.on('channel.closed', (payload, chId) => {
       if (chId !== channelIdRef.current) return;
       const p = payload as { reason?: string };
-      terminal.writeln(
-        `\r\n\x1b[2m(session closed${p.reason ? ': ' + p.reason : ''} — reconnecting…)\x1b[0m`
-      );
+      // Only a channel that stayed up counts as a successful attach; see
+      // DURABLE_MS. A short-lived one means the session is gone, so we let the
+      // counter keep climbing until MAX_REATTACH stops us.
+      if (attachedAt && Date.now() - attachedAt >= DURABLE_MS) reattachAttempts = 0;
+      attachedAt = 0;
       channelIdRef.current = null;
-      // Resurrect the live channel — the tmux session is almost always still
-      // alive; only the sigil channel dropped.
+      const givingUp = reattachAttempts >= MAX_REATTACH;
+      terminal.writeln(
+        givingUp
+          ? `\r\n\x1b[2m(session closed${p.reason ? ': ' + p.reason : ''} — gave up reconnecting; the session may no longer exist)\x1b[0m`
+          : `\r\n\x1b[2m(session closed${p.reason ? ': ' + p.reason : ''} — reconnecting…)\x1b[0m`
+      );
+      // Resurrect the live channel — the tmux session is usually still alive and
+      // only the sigil channel dropped. If it isn't, the backoff above gives up.
       scheduleReattach();
     });
 

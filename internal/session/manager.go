@@ -1354,17 +1354,24 @@ func (m *Manager) Attach(hostName, sessionName string, windowIndex int, rows, co
 			Msg("channel closed")
 
 		if m.events != nil {
+			// Carry waitErr through as `reason`. A viewer cannot otherwise tell
+			// "the session is gone" from "the channel blipped", which is what let a
+			// dead session drive an unbounded client re-attach loop.
+			data := map[string]interface{}{
+				"channel_id":   channelID,
+				"session_id":   sessionID,
+				"host_name":    hostName,
+				"session_name": sessionName,
+			}
+			if waitErr != nil {
+				data["reason"] = waitErr.Error()
+			}
 			select {
 			case m.events <- sigil.Event{
 				ID:        fmt.Sprintf("evt_%d", time.Now().UnixNano()),
 				Type:      "channel.closed",
 				Timestamp: time.Now(),
-				Data: map[string]interface{}{
-					"channel_id":   channelID,
-					"session_id":   sessionID,
-					"host_name":    hostName,
-					"session_name": sessionName,
-				},
+				Data:      data,
 			}:
 			default:
 			}
