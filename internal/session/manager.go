@@ -278,6 +278,11 @@ type Manager struct {
 	// discovery from the active pane command + output recency. NOT persisted —
 	// merged into the session list at broadcast time. See sigil.Session.Activity.
 	activityBySession map[string]string
+	// Trips a cooldown on attach targets that keep failing fast, so a wedged
+	// client cannot exhaust a host's SSH channels and starve discovery for every
+	// other session on it. See attachguard.go for the incident this prevents.
+	attachGuard *attachGuard
+
 	// Last-seen pipe-log size per session — the delta between discoveries is the
 	// reliable "produced output recently" signal (tmux session_activity does NOT
 	// track pane output for detached sessions).
@@ -366,6 +371,7 @@ func New(pool *sshpool.Pool, d *db.DB, events chan<- sigil.Event) *Manager {
 		db:                d,
 		channels:          make(map[string]*Channel),
 		clients:           make(map[string]*tmuxClient),
+		attachGuard:       newAttachGuard(),
 		activityBySession: make(map[string]string),
 		signalBySession:   make(map[string]*hookSignal),
 		logSizeBySession:  make(map[string]int64),
@@ -1086,6 +1092,16 @@ func (m *Manager) Attach(hostName, sessionName string, windowIndex int, rows, co
 	key := clientKey(hostName, sessionName, windowIndex)
 	sessionID := fmt.Sprintf("%s:%s", hostName, sessionName)
 
+	// Storm guard. A client retry loop against a session that no longer exists
+	// will otherwise open an SSH channel per attempt, exhaust the host's
+	// MaxSessions, and starve discovery for every healthy session on that host —
+	// which then get pruned. Checked BEFORE any SSH work. See attachguard.go.
+	if ok, retryIn := m.attachGuard.allow(sessionID, time.Now()); !ok {
+		m.log.Warn().Str("host", hostName).Str("session", sessionName).
+			Dur("retry_in", retryIn).Msg("attach refused — target cooling down after repeated fast failures")
+		return "", nil, &ErrAttachCoolingDown{Target: sessionID, Retry: retryIn}
+	}
+
 	// Fast path: an existing backend for this exact target — just add a viewer.
 	// Retried in a loop because the backend can be shutting down under us, in
 	// which case addSub fails and we fall through to building a fresh one.
@@ -1320,6 +1336,7 @@ func (m *Manager) Attach(hostName, sessionName string, windowIndex int, rows, co
 	}()
 
 	// Wait for session to finish
+	attachedAt := time.Now()
 	go func() {
 		waitErr := sess.Wait()
 		tc.shutdown()
@@ -1342,6 +1359,20 @@ func (m *Manager) Attach(hostName, sessionName string, windowIndex int, rows, co
 			}
 		}
 		m.mu.Unlock()
+
+		// Feed the storm guard. A channel that died inside the fail-fast window
+		// never really attached (the hub emits channel.attached before `tmux
+		// attach` can fail), so it counts against the target's budget. One that
+		// stayed up proves the session is real and clears the history.
+		if waitErr != nil && time.Since(attachedAt) < attachFailFastWindow {
+			if tripped := m.attachGuard.recordFailure(sessionID, time.Now()); tripped {
+				m.log.Warn().Str("host", hostName).Str("session", sessionName).
+					Dur("cooldown", attachCooldown).
+					Msg("attach breaker tripped — refusing attaches to this session for the cooldown")
+			}
+		} else if time.Since(attachedAt) >= attachFailFastWindow {
+			m.attachGuard.recordSuccess(sessionID)
+		}
 
 		// Log why the channel closed. waitErr is nil for a clean tmux
 		// detach/exit and carries the SSH exit/transport error otherwise —

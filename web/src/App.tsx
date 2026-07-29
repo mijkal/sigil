@@ -163,10 +163,20 @@ export function App() {
       }
     });
 
-    // Channel errors as toasts
+    // Channel errors as toasts. dedupeKey is deliberately COARSER than the error
+    // text: an attach storm produces a slightly different message each time
+    // (channel ids, timings), which would defeat message-based coalescing and
+    // reproduce the 2026-07-29 spam. One card per session, with a count.
     const unsubChannelError = client.on('channel.error', (payload) => {
-      const p = payload as { error?: string };
-      push({ type: 'error', title: 'Channel error', message: p.error, durationMs: 6000 });
+      const p = payload as { error?: string; host_name?: string; session_name?: string };
+      const target = p.host_name && p.session_name ? `${p.host_name}:${p.session_name}` : undefined;
+      push({
+        type: 'error',
+        title: target ? `Channel error — ${target}` : 'Channel error',
+        message: p.error,
+        durationMs: 6000,
+        dedupeKey: `channel.error|${target ?? 'unknown'}`,
+      });
     });
 
     // UI trigger effects (flash / tint / audio / toast) fired by the daemon's

@@ -43,8 +43,20 @@ function ToastItem({ toast }: { toast: Toast }) {
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '13px', fontWeight: 700, color, marginBottom: toast.message ? '3px' : 0, lineHeight: 1.3 }}>
-          {toast.title}
+        <div style={{ fontSize: '13px', fontWeight: 700, color, marginBottom: toast.message ? '3px' : 0, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toast.title}</span>
+          {/* Repeat count for coalesced bursts — see toastStore MAX_VISIBLE/keyOf. */}
+          {(toast.count ?? 1) > 1 && (
+            <span
+              title={`${toast.count} identical events`}
+              style={{
+                flexShrink: 0, fontSize: '11px', fontWeight: 700, lineHeight: 1,
+                padding: '2px 6px', borderRadius: '999px',
+                background: `color-mix(in srgb, ${color} 26%, transparent)`,
+                border: `1px solid ${color}`, color,
+              }}
+            >×{toast.count}</span>
+          )}
         </div>
         {toast.message && (
           <div style={{ fontSize: '12px', color: 'var(--color-text)', lineHeight: 1.4, wordBreak: 'break-word' }}>
