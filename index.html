@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sigil — a self-hosted hub for your terminal sessions</title>
-<meta name="description" content="Sigil SSHes into your machines, attaches to tmux, and serves every session as a fast, persistent web terminal. One browser tab for your whole fleet.">
+<title>Sigil — supervise your terminal sessions and the AI agents inside them</title>
+<meta name="description" content="Sigil SSHes into your machines, attaches to tmux, and serves every session as a fast, persistent web terminal — and tells you which of your Claude Code and Codex sessions are working, which are blocked waiting on you, and what they are costing.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<meta property="og:title" content="Sigil — a self-hosted hub for your terminal sessions">
-<meta property="og:description" content="SSH + tmux, served as fast, persistent web terminals. One browser tab for your whole fleet.">
+<meta property="og:title" content="Sigil — supervise your terminal sessions and the AI agents inside them">
+<meta property="og:description" content="Observable, interruptible sessions for long-running AI coding agents. See what is working, what is blocked, and what it costs. Go + tmux, self-hosted.">
 <meta property="og:image" content="https://mijkal.github.io/sigil/sigil.png">
 <meta property="og:url" content="https://mijkal.github.io/sigil/">
 <meta name="twitter:card" content="summary_large_image">
@@ -103,9 +103,12 @@
     </g>
   </svg>
   <h1>SIGIL</h1>
-  <p class="tag">A self-hosted hub for your terminal sessions. SSH into your machines,
-     attach to <code>tmux</code>, and get every session as a fast, persistent web
-     terminal — one browser tab for your whole fleet.</p>
+  <p class="tag">A self-hosted hub for your terminal sessions — and for the AI coding
+     agents running inside them. SSH into your machines, attach to <code>tmux</code>, and get
+     every session as a fast, persistent web terminal — one browser tab for your whole fleet.</p>
+  <p class="tag">Running agents on remote hosts? Sigil answers the question a terminal can't:
+     which sessions are <strong>working</strong>, which are <strong>blocked waiting on you</strong>,
+     and what they're costing.</p>
   <div class="cta">
     <a class="btn primary" href="https://github.com/mijkal/sigil">View on GitHub</a>
     <a class="btn" href="https://github.com/mijkal/sigil/blob/main/docs/SETUP.md">Set it up</a>
@@ -122,9 +125,9 @@
   <p class="lede">A single Go daemon plus a web client. Nothing is installed on the machines you manage.</p>
   <div class="grid">
     <div class="card">
-      <h3>No agent on your hosts</h3>
-      <p>Sigil connects outward over SSH to machines you already have access to. A host needs
-         sshd, tmux and a shell — nothing else, and nothing new to trust.</p>
+      <h3>Nothing to install on your hosts</h3>
+      <p>Sigil connects outward over SSH to machines you already have access to — no daemon, no
+         sidecar. A host needs sshd, tmux and a shell: nothing else, and nothing new to trust.</p>
     </div>
     <div class="card">
       <h3>Your sessions survive</h3>
@@ -152,6 +155,53 @@
          beep, toast, or call an HMAC-signed webhook.</p>
     </div>
   </div>
+</section>
+
+<section class="wrap">
+  <h2>Supervising coding agents</h2>
+  <p class="lede">An agent left running on a remote host is in one of three states you care
+     about, and a terminal shows you none of them at a glance. Sigil reads the session itself
+     and answers that across the whole fleet.</p>
+  <div class="grid">
+    <div class="card">
+      <h3>It knows what the agent is doing</h3>
+      <p>Sigil classifies live output from <strong>Claude Code</strong> and <strong>Codex CLI</strong>
+         into <em>working</em>, <em>waiting on you</em>, or <em>done</em> — permission prompts,
+         approval prompts, spinner frames and idle shells, including the narrow-pane and reflowed
+         variants. The classifier is tested against real captured sessions, because the naive
+         version shipped once and got it wrong in production.</p>
+    </div>
+    <div class="card">
+      <h3>Blocked agents raise a hand</h3>
+      <p>Every session carries a signal — working, needs you, connected, idle — so an agent
+         stuck on an approval prompt is visible from the session list, the TUI, or your phone,
+         instead of being discovered an hour later.</p>
+    </div>
+    <div class="card">
+      <h3>Token and cost burndown</h3>
+      <p><code>/api/v1/agent-usage</code> aggregates the provider's own local transcripts into
+         usage per host, for Claude and Codex. There is no scriptable <code>claude usage</code>
+         command; this fills that gap.</p>
+    </div>
+    <div class="card">
+      <h3>Route a blocked agent anywhere</h3>
+      <p>Match a regex against session output and fire an HMAC-signed webhook — the hook for
+         pushing a stuck agent into Slack, Telegram, or your own orchestrator.</p>
+    </div>
+    <div class="card">
+      <h3>Overnight runs survive</h3>
+      <p>Named sessions come back after a tmux or host restart, so a long unattended run
+         survives the kind of failure that otherwise ends it silently.</p>
+    </div>
+    <div class="card">
+      <h3>Diagnostics a machine can read</h3>
+      <p><code>sigil doctor --json</code> is meant to be consumed by a script — or by an agent
+         debugging its own environment.</p>
+    </div>
+  </div>
+  <p class="lede" style="margin-top:1.5rem">Sigil does not run or schedule agents. It is the
+     <strong>supervision and observability layer</strong> for agents you are already running
+     under tmux.</p>
 </section>
 
 <section class="wrap">
