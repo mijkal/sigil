@@ -2,7 +2,7 @@
 # Fails if a raw hex color appears in a themeable component. Allowlist: files
 # that legitimately hold fixed colours (brand glyphs, the terminal palette).
 set -u
-ALLOW='OsIcon.tsx|SigilLogo.tsx|TerminalTile.tsx|UnifiedTerminalTile.tsx|ScrollbackPanel.tsx|AboutMenu.tsx'
+ALLOW='OsIcon.tsx|SigilLogo.tsx|TerminalTile.tsx|UnifiedTerminalTile.tsx|ScrollbackPanel.tsx|AboutMenu.tsx|ColorPickerMenu.tsx'
 hits=$(grep -rniE '#[0-9a-f]{6}\b|#[0-9a-f]{3}\b' src/components src/ui 2>/dev/null \
   | grep -viE "$ALLOW" | grep -viE '#fff\b|#ffffff\b')
 if [ -n "$hits" ]; then
