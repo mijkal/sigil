@@ -528,7 +528,21 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 	// back the conversation, not just a bare shell. It is placed before
 	// pane_current_path because the path is the trailing field and may (rarely)
 	// contain a literal '|'; keeping it last lets SplitN absorb any stray '|'.
-	const cmd = `(tmux list-sessions -F '__S__:#{session_name}:#{session_windows}:#{session_created}:#{session_activity}:#{session_attached}' 2>/dev/null; tmux list-windows -a -F '__W__|#{session_name}|#{window_index}|#{window_id}|#{window_name}|#{window_active}|#{window_panes}' 2>/dev/null; tmux list-panes -a -F '__P__|#{session_name}|#{window_active}|#{pane_active}|#{pane_current_command}|#{pane_current_path}' 2>/dev/null; for f in "$HOME"/.local/share/sigil/logs/*.log; do [ -e "$f" ] && printf '__L__:%s:%s\n' "$(basename "$f" .log)" "$(wc -c < "$f" 2>/dev/null || echo 0)"; done); tmux show-options -s >/dev/null 2>&1 && echo "__T__:up" || echo "__T__:down"; true`
+	// Discovery must enumerate BOTH tmux servers: the default one holding the
+	// operator's work sessions, and the isolated ephemeral server (see
+	// ephemeralSocket). Output is concatenated and parsed identically — the
+	// parser keys on session name, and ephemeral names are disjoint from real
+	// ones, so no disambiguation is needed. A missing ephemeral server just
+	// prints nothing (2>/dev/null), which is the correct "no ephemerals" state.
+	//
+	// __T__ deliberately probes ONLY the default server: it is the tmux-up
+	// signal that drives auto-resurrect of the work sessions. Ephemerals are
+	// never resurrected, so the ephemeral server's liveness must not influence it.
+	const listBlock = `tmux%s list-sessions -F '__S__:#{session_name}:#{session_windows}:#{session_created}:#{session_activity}:#{session_attached}' 2>/dev/null; tmux%s list-windows -a -F '__W__|#{session_name}|#{window_index}|#{window_id}|#{window_name}|#{window_active}|#{window_panes}' 2>/dev/null; tmux%s list-panes -a -F '__P__|#{session_name}|#{window_active}|#{pane_active}|#{pane_current_command}|#{pane_current_path}' 2>/dev/null; `
+	cmd := "(" +
+		strings.ReplaceAll(listBlock, "%s", "") +
+		strings.ReplaceAll(listBlock, "%s", " -L "+ephemeralSocket) +
+		`for f in "$HOME"/.local/share/sigil/logs/*.log; do [ -e "$f" ] && printf '__L__:%s:%s\n' "$(basename "$f" .log)" "$(wc -c < "$f" 2>/dev/null || echo 0)"; done); tmux show-options -s >/dev/null 2>&1 && echo "__T__:up" || echo "__T__:down"; true`
 	out, err := sshpool.OutputWithTimeout(sess, cmd, sshpool.DefaultExecTimeout)
 	if err != nil {
 		return nil // tmux not present or failed — not an error for sigil
@@ -651,7 +665,11 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 			// Broadening this is safe: a non-claude reading never clears the
 			// stored value (see UpsertSession), so more sampling can only turn
 			// an empty start_cmd into a correct one.
-			if rc := resumeCmdForPaneCommand(paneCmd); rc != "" {
+			//
+			// Ephemerals are excluded: they are never resurrected (see
+			// ephemeral.go), so a stored resume command for one is dead data
+			// that only makes the DB harder to read.
+			if rc := resumeCmdForPaneCommand(paneCmd); rc != "" && !m.IsEphemeralName(sessName) {
 				resumeCmdBySession[sessName] = rc
 			}
 		}
@@ -1099,7 +1117,7 @@ func (m *Manager) SendKeys(sessionID, text string, enter bool) error {
 		return fmt.Errorf("ssh session: %w", err)
 	}
 	defer sess.Close()
-	cmd := fmt.Sprintf("tmux send-keys -t %s %s", exactPane(name), shellEscape(text))
+	cmd := fmt.Sprintf("%s send-keys -t %s %s", m.tmuxFor(name), exactPane(name), shellEscape(text))
 	if enter {
 		cmd += " Enter"
 	}
@@ -1255,14 +1273,14 @@ func (m *Manager) Attach(hostName, sessionName string, windowIndex int, rows, co
 		wtarget = fmt.Sprintf("%s:%d", sessionName, windowIndex)
 	}
 	wopt := shellEscape(wtarget)
+	tx := m.tmuxFor(sessionName)
 	cmd := fmt.Sprintf(
-		"tmux set-option -t %s status off 2>/dev/null; tmux set-option -t %s mouse off 2>/dev/null; "+
-			"tmux set-option -w -t %s window-size latest 2>/dev/null; "+
-			"tmux attach-session -t %s; "+
-			"tmux set-option -t %s status on 2>/dev/null; tmux set-option -u -t %s mouse 2>/dev/null; "+
-			"tmux set-option -uw -t %s window-size 2>/dev/null",
-		sopt, sopt, wopt, shellEscape(target),
-		sopt, sopt, wopt,
+		"%[1]s set-option -t %[2]s status off 2>/dev/null; %[1]s set-option -t %[2]s mouse off 2>/dev/null; "+
+			"%[1]s set-option -w -t %[3]s window-size latest 2>/dev/null; "+
+			"%[1]s attach-session -t %[4]s; "+
+			"%[1]s set-option -t %[2]s status on 2>/dev/null; %[1]s set-option -u -t %[2]s mouse 2>/dev/null; "+
+			"%[1]s set-option -uw -t %[3]s window-size 2>/dev/null",
+		tx, sopt, wopt, shellEscape(target),
 	)
 	if err := sess.Start(cmd); err != nil {
 		sess.Close()
@@ -1719,7 +1737,7 @@ func (m *Manager) SessionExists(hostName, name string) (bool, error) {
 	}
 	defer probe.Close()
 	// has-session exits 0 if the session exists, 1 otherwise.
-	if perr := probe.Run(fmt.Sprintf("tmux has-session -t %s 2>/dev/null", exactSession(name))); perr == nil {
+	if perr := probe.Run(fmt.Sprintf("%s has-session -t %s 2>/dev/null", m.tmuxFor(name), exactSession(name))); perr == nil {
 		return true, nil
 	}
 	return false, nil
@@ -1735,7 +1753,7 @@ func (m *Manager) CreateSession(hostName, name, startDir, startCmd string) error
 	}
 	defer sess.Close()
 
-	cmd := fmt.Sprintf("tmux new-session -d -s %s", shellEscape(name))
+	cmd := fmt.Sprintf("%s new-session -d -s %s", m.tmuxFor(name), shellEscape(name))
 	if startDir != "" {
 		cmd += " -c " + shellEscape(startDir)
 	}
@@ -1745,7 +1763,7 @@ func (m *Manager) CreateSession(hostName, name, startDir, startCmd string) error
 
 	if startCmd != "" {
 		// Send the start command to the first pane of the new session
-		sendCmd := fmt.Sprintf("tmux send-keys -t %s %s Enter", exactPane(name), shellEscape(startCmd))
+		sendCmd := fmt.Sprintf("%s send-keys -t %s %s Enter", m.tmuxFor(name), exactPane(name), shellEscape(startCmd))
 		sess2, err := m.pool.NewSession(hostName)
 		if err != nil {
 			return fmt.Errorf("send-keys ssh session: %w", err)
@@ -1774,7 +1792,7 @@ func (m *Manager) DestroySession(hostName, sessionName string) error {
 	}
 	defer sess.Close()
 
-	cmd := fmt.Sprintf("tmux kill-session -t %s", exactSession(sessionName))
+	cmd := fmt.Sprintf("%s kill-session -t %s", m.tmuxFor(sessionName), exactSession(sessionName))
 	err = sess.Run(cmd)
 
 	// Clean up pipe log + replay ring regardless of kill result (best effort)
@@ -1880,7 +1898,7 @@ func (m *Manager) CapturePane(hostName, sessionName string) (text string, altOn 
 	// makes it home. capture-pane still discards stderr: nothing may leak into
 	// the pane text.
 	pane := exactPane(sessionName)
-	cmd := fmt.Sprintf("tmux display-message -p -t %s '#{alternate_on}' 2>&1 | head -1; tmux capture-pane -peJ -S -%d -t %s 2>/dev/null; true", pane, captureHistoryLines, pane)
+	cmd := fmt.Sprintf("%[1]s display-message -p -t %[2]s '#{alternate_on}' 2>&1 | head -1; %[1]s capture-pane -peJ -S -%[3]d -t %[2]s 2>/dev/null; true", m.tmuxFor(sessionName), pane, captureHistoryLines)
 	out, err := sshpool.OutputWithTimeout(sess, cmd, sshpool.DefaultExecTimeout)
 	if err != nil {
 		// Transport-level: the command never completed. The session may well be fine.
@@ -2004,15 +2022,16 @@ func (m *Manager) StartPipeCapture(hostName, sessionName string) error {
 	cmd := fmt.Sprintf(
 		`mkdir -p "$HOME/.local/share/sigil/logs" 2>/dev/null; `+
 			`if [ -f %[1]s ]; then cat %[1]s >> %[2]s 2>/dev/null && rm -f %[1]s; fi; `+
-			"tmux set-option -t %[3]s history-limit 50000 2>/dev/null; "+
-			"tmux pipe-pane -t %[4]s 2>/dev/null; "+
-			"tmux pipe-pane -o -t %[4]s 'cat >> %[5]s' 2>/dev/null; true",
+			"%[6]s set-option -t %[3]s history-limit 50000 2>/dev/null; "+
+			"%[6]s pipe-pane -t %[4]s 2>/dev/null; "+
+			"%[6]s pipe-pane -o -t %[4]s 'cat >> %[5]s' 2>/dev/null; true",
 		legacyPath, logPath,
 		exactSession(sessionName), exactPane(sessionName),
 		// Inside the single-quoted pipe-pane command the double-quoted
 		// $HOME form is passed through verbatim and expanded by the tmux
 		// server's shell.
-		logPath)
+		logPath,
+		m.tmuxFor(sessionName))
 	if err := sess.Run(cmd); err != nil {
 		m.pipedMu.Lock()
 		delete(m.pipedSessions, id)
@@ -2040,8 +2059,8 @@ func (m *Manager) StopPipeCapture(hostName, sessionName string) {
 	}
 	defer sess.Close()
 
-	_ = sess.Run(fmt.Sprintf("tmux pipe-pane -t %s 2>/dev/null; rm -f %s %s 2>/dev/null; true",
-		exactPane(sessionName), pipeLogShellPath(sessionName),
+	_ = sess.Run(fmt.Sprintf("%s pipe-pane -t %s 2>/dev/null; rm -f %s %s 2>/dev/null; true",
+		m.tmuxFor(sessionName), exactPane(sessionName), pipeLogShellPath(sessionName),
 		legacyPipeLogShellPath(hostName, sessionName)))
 }
 

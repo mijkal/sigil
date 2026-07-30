@@ -110,3 +110,33 @@ func (m *Manager) EphemeralPatterns() []string {
 	}
 	return m.ephemeral.list()
 }
+
+// --- Ephemeral socket isolation (2026-07-30) ---
+//
+// Ephemeral sessions live on their OWN tmux server, reached with `tmux -L`.
+//
+// Why: an orchestrator spawns ~70 hostsh-* sessions/day on the same tmux server
+// as the operator's long-lived work sessions. Sharing one server means sharing
+// one fd budget, one crash, and one lifecycle — on 2026-07-30 a burst of that
+// churn coincided with the server dying repeatedly and taking every named
+// session with it. Two servers means orchestrator churn cannot reach the work
+// sessions no matter how badly it misbehaves.
+//
+// The socket NAME (not a path) is used so it resolves under whatever TMUX_TMPDIR
+// the host exports — on jupiter that is ~/.local/state/tmux, deliberately out of
+// /tmp so macOS's periodic cleaner cannot delete a live socket.
+const ephemeralSocket = "sigil-ephemeral"
+
+// tmuxFor returns the tmux invocation prefix for a session, routing ephemeral
+// names to the isolated server and everything else to the default one.
+//
+// Every session-scoped tmux call must go through this. A call that hardcodes
+// "tmux" will silently operate on the wrong server: for an ephemeral session it
+// targets the default server, where that session does not exist, so the command
+// is a no-op rather than a visible error.
+func (m *Manager) tmuxFor(name string) string {
+	if m.IsEphemeralName(name) {
+		return "tmux -L " + ephemeralSocket
+	}
+	return "tmux"
+}
