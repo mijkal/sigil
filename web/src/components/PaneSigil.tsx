@@ -45,7 +45,7 @@ export function PaneSigilBackdrop({ sessionName, hostName, accent, opacity = 0.1
   // Lift the ink toward a light tone so a dark accent still registers on the
   // near-black terminal. The mark is sparse (thin lines + a few stars) so a higher
   // opacity reads as ambient identity without blanketing — text stays legible.
-  const wash = `color-mix(in srgb, ${ink} 62%, #cbd5e1)`;
+  const wash = `color-mix(in srgb, ${ink} 62%, var(--term-ink-wash))`;
   return (
     <div style={{
       position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
