@@ -636,12 +636,23 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 			if windowActive && paneActive {
 				paneCmdBySession[sessName] = paneCmd
 			}
-			// Record a resume command from the active pane only. We never clear
-			// it on a non-claude reading (e.g. the pane sits at a bash prompt, or
-			// claude is briefly shelling out for a tool) — the stored value
-			// persists so a later death still resurrects the conversation.
-			if windowActive && paneActive && resumeCmdForPaneCommand(paneCmd) != "" {
-				resumeCmdBySession[sessName] = resumeCmdForPaneCommand(paneCmd)
+			// Record a resume command from ANY pane running claude — not just the
+			// active pane of the active window.
+			//
+			// 2026-07-30: requiring the active pane meant the command was often
+			// never captured at all. Discovery degrades exactly when it matters
+			// (SSH channel exhaustion logs "implausibly few sessions … seen=1"
+			// for hours), and a session whose claude sits in a non-active window
+			// never yielded a signal either. start_cmd then stayed empty, so
+			// auto-resurrect faithfully recreated the session NAME as a bare
+			// shell with no agent in it — the user saw their sessions "come
+			// back" repeatedly with all their work gone.
+			//
+			// Broadening this is safe: a non-claude reading never clears the
+			// stored value (see UpsertSession), so more sampling can only turn
+			// an empty start_cmd into a correct one.
+			if rc := resumeCmdForPaneCommand(paneCmd); rc != "" {
+				resumeCmdBySession[sessName] = rc
 			}
 		}
 	}
@@ -2208,19 +2219,35 @@ func exactPane(name string) string {
 	return shellEscape("=" + name + ":")
 }
 
-// resumeCmdForPaneCommand maps the active pane's foreground command to the
-// command that should be replayed when the session is resurrected. The point is
-// to bring back the running tool's state, not a bare shell. Today only Claude
-// Code is handled: `claude --continue` resumes the most recent conversation in
-// the session's cwd, which — after a crash/OOM — is exactly the conversation
-// that died (nothing newer ran there). Returns "" for anything we don't resume,
-// which leaves the session resurrecting as a plain shell (prior behaviour).
+// claudeVersionBinaryRe matches Claude Code's *versioned* executable name.
 //
-// The native claude binary reports a foreground command of "claude"; we also
-// accept a "claude"-suffixed path defensively in case a wrapper is in front.
+// 2026-07-30: this is why resurrect produced bare shells. Claude Code's native
+// installer symlinks ~/.local/bin/claude at
+// ~/.local/share/claude/versions/<semver>, so the executable FILE is named e.g.
+// "2.1.220". tmux's pane_current_command reports the executable basename, so it
+// yields "2.1.220" — never "claude". resumeCmdForPaneCommand could therefore
+// never match a natively-installed Claude Code, start_cmd stayed empty forever,
+// and auto-resurrect recreated session names with no agent inside them.
+//
+// Matching a bare semver is deliberately narrow: a false positive would only
+// replay `claude --continue` in a session that was running something else,
+// which is recoverable, whereas a false negative silently loses the user's work.
+var claudeVersionBinaryRe = regexp.MustCompile(`^\d+\.\d+\.\d+`)
+
+// resumeCmdForPaneCommand maps a pane's foreground command to the command that
+// should be replayed when the session is resurrected. The point is to bring back
+// the running tool's state, not a bare shell. Today only Claude Code is handled:
+// `claude --continue` resumes the most recent conversation in the session's cwd,
+// which — after a crash/OOM — is exactly the conversation that died (nothing
+// newer ran there). Returns "" for anything we don't resume, which leaves the
+// session resurrecting as a plain shell (prior behaviour).
+//
+// The native claude binary may report a foreground command of "claude", a
+// "claude"-suffixed path (defensive, in case a wrapper is in front), or a bare
+// version string — see claudeVersionBinaryRe.
 func resumeCmdForPaneCommand(paneCmd string) string {
 	c := strings.TrimSpace(paneCmd)
-	if c == "claude" || strings.HasSuffix(c, "/claude") {
+	if c == "claude" || strings.HasSuffix(c, "/claude") || claudeVersionBinaryRe.MatchString(c) {
 		// --dangerously-skip-permissions: a resurrected session has nobody at
 		// the keyboard to answer permission prompts, so a plain --continue
 		// just sits blocked until a human attaches. These are the operator's
