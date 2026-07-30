@@ -16,6 +16,7 @@
   /* Terminal colours (dark) */
   --term-bg: #0A0A0C;
   --term-fg: #E2E8F0;
+  --term-ink-wash: #cbd5e1;
   --font-ui: Inter, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
 }
@@ -38,6 +39,7 @@
     /* Terminal keeps dark regardless — terminals are always dark */
     --term-bg: #0A0A0C;
     --term-fg: #E2E8F0;
+    --term-ink-wash: #cbd5e1;
   }
 }
 
@@ -58,6 +60,7 @@ html[data-theme="dark"] {
   --color-muted-dim: #334155;
   --term-bg: #0A0A0C;
   --term-fg: #E2E8F0;
+  --term-ink-wash: #cbd5e1;
 }
 
 html[data-theme="light"] {
@@ -76,6 +79,7 @@ html[data-theme="light"] {
   --color-muted-dim: #D1D5DB;
   --term-bg: #0A0A0C;
   --term-fg: #E2E8F0;
+  --term-ink-wash: #cbd5e1;
 }
 
 * {

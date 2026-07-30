@@ -487,7 +487,7 @@ export function PaneView({ paneId }: PaneViewProps) {
       {/* Terminal area — all mounted, only active visible. Paints the terminal
           base colour so the optional sigil backdrop (below) can sit between it and
           the transparent scrollback text. */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#0A0A0C' }}>
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'var(--term-bg)' }}>
         {activeTab && paneSigilBackdrop(pane) && (
           <PaneSigilBackdrop
             sessionName={activeTab.sessionName}
