@@ -502,6 +502,29 @@ func (m *Manager) DiscoverAll(ctx context.Context) {
 
 // DiscoverHost discovers tmux sessions and windows on a single host.
 // It runs a combined command to fetch both in one SSH round-trip.
+// logSizeBlock emits one `__L__:<name>:<size>` line per capture log, in TWO
+// processes total rather than two PER FILE.
+//
+// The shell loop this replaces ran `basename` and `wc -c` in command
+// substitutions for every log — on a host with 239 logs that is ~478 forks
+// on every discovery tick. Measured on the macOS host, where fork is dear:
+// discovery took 12–13.5s against a 20s exec timeout. Ticks that crossed the
+// bound returned no sessions at all, and three consecutive misses prune a
+// session's row (pruneMissThreshold) — so LIVE sessions were being dropped
+// from the DB while their tmux session ran happily on the host. Anything
+// asking sigil about them got a 404 and concluded the work had died: the
+// orchestrator marked ~100 workers/hour "lost" on that host alone.
+//
+// `wc -c` accepts the whole glob at once and prints "<size> <path>" per line
+// plus a trailing "total"; awk strips the directory and .log suffix. The
+// filename is taken as everything after the first field, so a session name
+// containing spaces survives — the old loop quoted correctly and this must
+// not regress that. A non-matching glob leaves the pattern literal, wc fails
+// to stderr, and nothing is emitted: the correct "no logs" state.
+const logSizeBlock = `wc -c "$HOME"/.local/share/sigil/logs/*.log 2>/dev/null | ` +
+	`awk '{ sz=$1; $1=""; sub(/^ +/,""); if ($0=="total" || $0=="") next; ` +
+	`n=$0; sub(/.*\//,"",n); sub(/\.log$/,"",n); printf "__L__:%s:%s\n", n, sz }'`
+
 func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 	sess, err := m.pool.NewSession(hostName)
 	if err != nil {
@@ -542,7 +565,7 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 	cmd := "(" +
 		strings.ReplaceAll(listBlock, "%s", "") +
 		strings.ReplaceAll(listBlock, "%s", " -L "+ephemeralSocket) +
-		`for f in "$HOME"/.local/share/sigil/logs/*.log; do [ -e "$f" ] && printf '__L__:%s:%s\n' "$(basename "$f" .log)" "$(wc -c < "$f" 2>/dev/null || echo 0)"; done); tmux show-options -s >/dev/null 2>&1 && echo "__T__:up" || echo "__T__:down"; true`
+		logSizeBlock + `); tmux show-options -s >/dev/null 2>&1 && echo "__T__:up" || echo "__T__:down"; true`
 	out, err := sshpool.OutputWithTimeout(sess, cmd, sshpool.DefaultExecTimeout)
 	if err != nil {
 		return nil // tmux not present or failed — not an error for sigil
@@ -575,7 +598,12 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 			rest := line[6:]
 			if i := strings.LastIndexByte(rest, ':'); i > 0 {
 				safe := rest[:i]
-				sz, _ := strconv.ParseInt(rest[i+1:], 10, 64)
+				// TrimSpace, because BSD `wc` right-aligns its count in a
+				// fixed-width column. The producer no longer emits padding, but
+				// ParseInt rejects " 106" outright and the error is discarded —
+				// so every log size on the macOS host silently read as 0 for as
+				// long as the padded form was in use. Cheap to tolerate both.
+				sz, _ := strconv.ParseInt(strings.TrimSpace(rest[i+1:]), 10, 64)
 				logSizeBySafe[safe] = sz
 			}
 			continue
