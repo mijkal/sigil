@@ -1743,34 +1743,31 @@ func (m *Manager) SessionExists(hostName, name string) (bool, error) {
 	return false, nil
 }
 
-// paneReadyTimeout bounds the wait for a new pane's shell. Generous: the cost of
-// waiting is a second of latency on session creation, the cost of not waiting is
-// a lost dispatch that surfaces half an hour later as a mystery stall.
-const paneReadyTimeout = 8 * time.Second
+// startScriptPathRe strips everything that is not plainly safe in a filename, so
+// the generated path can be embedded in a single-quoted shell word without any
+// further escaping. Session names reach here from the API.
+var startScriptPathRe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
-// waitPaneReady blocks until the session's first pane is running a shell, or the
-// timeout expires. Returns an error only on timeout/unreachability — the caller
-// decides whether to proceed.
-func (m *Manager) waitPaneReady(hostName, name string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	probe := fmt.Sprintf("%s list-panes -t %s -F '#{pane_current_command}' 2>/dev/null | head -1",
-		m.tmuxFor(name), exactSession(name))
-	for time.Now().Before(deadline) {
-		sess, err := m.pool.NewSession(hostName)
-		if err != nil {
-			return fmt.Errorf("pane-ready ssh session: %w", err)
-		}
-		out, err := sess.Output(probe)
-		sess.Close()
-		if err == nil {
-			switch strings.TrimSpace(string(out)) {
-			case "zsh", "bash", "sh", "fish", "dash", "ksh":
-				return nil
-			}
-		}
-		time.Sleep(150 * time.Millisecond)
-	}
-	return fmt.Errorf("pane not ready within %s", timeout)
+// startScriptPath is where a session's start command is staged on the host.
+// Deliberately NOT deleted after the run: when a dispatch misbehaves, this file
+// is the only record of what was actually asked for, and it is what let us tell
+// "the command was wrong" apart from "the command never ran".
+func startScriptPath(name string) string {
+	return "/tmp/sigil-start-" + startScriptPathRe.ReplaceAllString(name, "-") + ".sh"
+}
+
+// panePreamble builds the pane's process: run the staged script, then hand the
+// pane to an interactive login shell so a human can take the session over once
+// the command finishes — the same end state the old send-keys path produced.
+//
+// The command runs under `$SHELL -i -l` rather than `sh`, because it used to be
+// typed at an interactive prompt and inherits that environment. On these hosts
+// the toolchain lives at ~/.local/bin, exported from an rc file that a
+// non-interactive shell never reads; running the payload under plain `sh` would
+// trade the race for `claude: command not found`. Verified on both exec hosts:
+// `claude` resolves identically under -i -l -c and at a real prompt.
+func panePreamble(script string) string {
+	return fmt.Sprintf(`${SHELL:-/bin/sh} -i -l -c '. %s'; exec ${SHELL:-/bin/sh} -l`, script)
 }
 
 // CreateSession creates a new detached tmux session on a host.
@@ -1787,41 +1784,49 @@ func (m *Manager) CreateSession(hostName, name, startDir, startCmd string) error
 	if startDir != "" {
 		cmd += " -c " + shellEscape(startDir)
 	}
-	if err := sess.Run(cmd); err != nil {
-		return err
-	}
 
 	if startCmd != "" {
-		// Wait for the pane's shell to be READY before typing into it.
+		// Run the start command AS the pane's process instead of typing it into
+		// the pane's shell. There is no window in which delivery can fail,
+		// because there is no delivery: tmux execs the command itself.
 		//
-		// 2026-07-31: this race silently destroyed every dispatch to one host.
-		// `new-session -d` returns as soon as tmux has forked the pane — the
-		// shell inside it is still running its rc files. send-keys delivered
-		// before that lands in a shell that is not yet reading, and the
-		// keystrokes are simply lost: the pane shows a half-typed command that
-		// never runs, the orchestrator sees no output, and ~30 minutes later a
-		// watchdog reports "no output, no new commits". Measured shell-ready
-		// latency: bash on Linux 0.15s, zsh on macOS 0.56s — so the host with
-		// the slower rc files lost the race every time. One exec host had
-		// 0 completions and 13 blocked runs over three days; the other, given
-		// identical work, had 18 completions.
+		// The send-keys approach it replaces lost dispatches outright. tmux
+		// `new-session -d` returns as soon as the pane is forked, while the
+		// shell inside is still sourcing rc files — and input arriving before
+		// the line editor starts is echoed by the tty and then DISCARDED when
+		// zle initialises. Measured on the macOS exec host: an interactive zsh
+		// takes 5.09s to become ready; keys sent at 2s are lost, at 5s they
+		// land. That host recorded 0 completed executions and 13 blocked over
+		// three days while the Linux host, given identical work, completed 18.
 		//
-		// Polling the pane's foreground command is the honest readiness signal:
-		// it becomes the shell only once the shell is actually running. Bounded,
-		// and on timeout we send anyway — a possibly-lost keystroke is no worse
-		// than today's behaviour, while refusing to send would turn a slow host
-		// into a hard failure.
-		if err := m.waitPaneReady(hostName, name, paneReadyTimeout); err != nil {
-			m.log.Warn().Err(err).Str("host", hostName).Str("session", name).
-				Msg("pane not confirmed ready — sending start command anyway")
+		// Two earlier fixes missed because the symptom was misread. Polling
+		// `pane_current_command` for a shell name (v0.1.4) is a FALSE signal —
+		// the pane's process is `zsh` from the instant tmux forks it, all
+		// through rc execution, so the gate returned immediately and gated
+		// nothing. A payload-size cliff was then inferred from delivery tests,
+		// but size is not the variable: a 30-character command fails at 2s
+		// exactly as a 3KB one does, and both succeed at 5s. It was always
+		// time.
+		//
+		// Staging the body in a file also removes the tty as a transport, so
+		// arbitrarily long commands no longer have to survive a terminal input
+		// buffer to run.
+		script := startScriptPath(name)
+		write := fmt.Sprintf("printf '%%s' %s > %s", shellEscape(startCmd), shellEscape(script))
+		ws, werr := m.pool.NewSession(hostName)
+		if werr != nil {
+			return fmt.Errorf("start-script ssh session: %w", werr)
 		}
-		sendCmd := fmt.Sprintf("%s send-keys -t %s %s Enter", m.tmuxFor(name), exactPane(name), shellEscape(startCmd))
-		sess2, err := m.pool.NewSession(hostName)
-		if err != nil {
-			return fmt.Errorf("send-keys ssh session: %w", err)
+		werr = ws.Run(write)
+		ws.Close()
+		if werr != nil {
+			return fmt.Errorf("stage start script %s: %w", script, werr)
 		}
-		defer sess2.Close()
-		_ = sess2.Run(sendCmd)
+		cmd += " " + shellEscape(panePreamble(script))
+	}
+
+	if err := sess.Run(cmd); err != nil {
+		return err
 	}
 
 	// Start durable output capture immediately — don't wait for the next
