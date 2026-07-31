@@ -179,8 +179,12 @@ func (m *Manager) ReapEphemeralSessions(ctx context.Context, hostName string, tt
 		if err := m.db.DeleteSession(hostName + ":" + c.name); err != nil {
 			m.log.Debug().Err(err).Str("session", c.name).Msg("ephemeral reap: db row already gone")
 		}
+		// Rendered as a string, not Dur: zerolog emits durations as bare
+		// milliseconds ("idle=39510000"), and this line is the operator's only
+		// record of a destructive action. It has to be readable at a glance.
 		m.log.Info().Str("host", hostName).Str("session", c.name).
-			Dur("idle", c.idle).Msg("reaped abandoned ephemeral session (finished, no owner)")
+			Str("idle", c.idle.Round(time.Minute).String()).
+			Msg("reaped abandoned ephemeral session (finished, no owner)")
 		killed = append(killed, c.name)
 	}
 	return killed, nil
