@@ -1743,6 +1743,36 @@ func (m *Manager) SessionExists(hostName, name string) (bool, error) {
 	return false, nil
 }
 
+// paneReadyTimeout bounds the wait for a new pane's shell. Generous: the cost of
+// waiting is a second of latency on session creation, the cost of not waiting is
+// a lost dispatch that surfaces half an hour later as a mystery stall.
+const paneReadyTimeout = 8 * time.Second
+
+// waitPaneReady blocks until the session's first pane is running a shell, or the
+// timeout expires. Returns an error only on timeout/unreachability — the caller
+// decides whether to proceed.
+func (m *Manager) waitPaneReady(hostName, name string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	probe := fmt.Sprintf("%s list-panes -t %s -F '#{pane_current_command}' 2>/dev/null | head -1",
+		m.tmuxFor(name), exactSession(name))
+	for time.Now().Before(deadline) {
+		sess, err := m.pool.NewSession(hostName)
+		if err != nil {
+			return fmt.Errorf("pane-ready ssh session: %w", err)
+		}
+		out, err := sess.Output(probe)
+		sess.Close()
+		if err == nil {
+			switch strings.TrimSpace(string(out)) {
+			case "zsh", "bash", "sh", "fish", "dash", "ksh":
+				return nil
+			}
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	return fmt.Errorf("pane not ready within %s", timeout)
+}
+
 // CreateSession creates a new detached tmux session on a host.
 // If startDir is non-empty the session starts in that directory (-c flag).
 // If startCmd is non-empty it is sent to the first pane after creation.
@@ -1762,7 +1792,29 @@ func (m *Manager) CreateSession(hostName, name, startDir, startCmd string) error
 	}
 
 	if startCmd != "" {
-		// Send the start command to the first pane of the new session
+		// Wait for the pane's shell to be READY before typing into it.
+		//
+		// 2026-07-31: this race silently destroyed every dispatch to one host.
+		// `new-session -d` returns as soon as tmux has forked the pane — the
+		// shell inside it is still running its rc files. send-keys delivered
+		// before that lands in a shell that is not yet reading, and the
+		// keystrokes are simply lost: the pane shows a half-typed command that
+		// never runs, the orchestrator sees no output, and ~30 minutes later a
+		// watchdog reports "no output, no new commits". Measured shell-ready
+		// latency: bash on Linux 0.15s, zsh on macOS 0.56s — so the host with
+		// the slower rc files lost the race every time. One exec host had
+		// 0 completions and 13 blocked runs over three days; the other, given
+		// identical work, had 18 completions.
+		//
+		// Polling the pane's foreground command is the honest readiness signal:
+		// it becomes the shell only once the shell is actually running. Bounded,
+		// and on timeout we send anyway — a possibly-lost keystroke is no worse
+		// than today's behaviour, while refusing to send would turn a slow host
+		// into a hard failure.
+		if err := m.waitPaneReady(hostName, name, paneReadyTimeout); err != nil {
+			m.log.Warn().Err(err).Str("host", hostName).Str("session", name).
+				Msg("pane not confirmed ready — sending start command anyway")
+		}
 		sendCmd := fmt.Sprintf("%s send-keys -t %s %s Enter", m.tmuxFor(name), exactPane(name), shellEscape(startCmd))
 		sess2, err := m.pool.NewSession(hostName)
 		if err != nil {

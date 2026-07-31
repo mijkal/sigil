@@ -9,7 +9,7 @@ import (
 // can inject real values via `-ldflags -X` — the Go linker can only set string
 // VARIABLES, so the previous `const Version` silently ignored the ldflag.
 var (
-	Version   = "0.1.3"
+	Version   = "0.1.4"
 	GitCommit = "dev"     // short git SHA, injected at build time
 	BuildDate = "unknown" // RFC3339 UTC, injected at build time
 )
