@@ -216,6 +216,12 @@ func main() {
 	// can't fill /tmp on the remote host (typically tmpfs / RAM-backed).
 	sessionMgr.StartPipeLogTrimLoop(ctx, 60)
 
+	// Reclaim ephemeral sessions whose owner never deleted them (a crashed
+	// orchestrator, or — before DELETE became authoritative — a 404 caused by a
+	// pruned row). Only finished, unattached, long-idle sessions are touched;
+	// see ephemeral_reap.go. Every 10 minutes: this is debris, not an incident.
+	sessionMgr.StartEphemeralReapLoop(ctx, 600, 0)
+
 	// Start scrollback flush loop
 	sbEngine.StartFlushLoop(ctx)
 

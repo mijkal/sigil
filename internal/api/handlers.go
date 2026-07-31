@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -397,7 +398,33 @@ func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if target == nil {
-		writeError(w, 404, "not_found", "session not found")
+		// No DB row — but that does NOT mean no session. Discovery prunes a row
+		// after three consecutive misses, and a slow or overrunning discovery
+		// tick can miss a session that is running perfectly well. Returning 404
+		// here without touching the host is how ephemeral sessions leaked: the
+		// orchestrator sent DELETE, got 404, and the tmux session was orphaned
+		// forever. One host accumulated 33 that way (the oldest 21 hours old)
+		// while a host whose rows were not being pruned had zero.
+		//
+		// So fall back to the id itself. The id is `host:session` by
+		// construction, the name is escaped by exactSession before it reaches a
+		// shell, and kill-session on a name that does not exist is a harmless
+		// no-op. Deleting something already absent is success, not an error —
+		// reporting 404 for it only teaches callers to ignore the failure.
+		host, name, ok := strings.Cut(id, ":")
+		if !ok || host == "" || name == "" {
+			writeError(w, 404, "not_found", "session not found")
+			return
+		}
+		if err := s.sessions.DestroySession(host, name); err != nil {
+			s.log.Debug().Err(err).Str("session", id).
+				Msg("delete with no db row: host kill failed (likely already gone)")
+		} else {
+			s.log.Info().Str("session", id).
+				Msg("deleted session that had no db row (pruned but still alive on host)")
+		}
+		_ = s.db.DeleteSession(id)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
