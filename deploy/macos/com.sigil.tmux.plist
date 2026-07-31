@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Keeps a managed host's tmux server alive across logout, crashes and reboots.
+  Install to /Library/LaunchDaemons/ (SYSTEM domain, not a per-user LaunchAgent).
+
+  Replace REPLACE_USER with the account that owns the sessions, and check the
+  paths below. See README.md in this directory for why each key is here.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.sigil.tmux</string>
+
+  <!-- System-domain daemon running AS the session owner. A LaunchAgent is tied
+       to a login context; a headless/SSH-only account may not have a durable
+       one, which is the fragility this exists to escape. -->
+  <key>UserName</key><string>REPLACE_USER</string>
+  <key>GroupName</key><string>staff</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/REPLACE_USER/.local/bin/tmux-daemon.sh</string>
+  </array>
+
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+
+  <!-- Interactive, NOT Background: Background applies darwin-bg throttling,
+       which is the opposite of what an agent workload needs. -->
+  <key>ProcessType</key><string>Interactive</string>
+  <key>AbandonProcessGroup</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>WorkingDirectory</key><string>/Users/REPLACE_USER</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>/Users/REPLACE_USER</string>
+    <key>USER</key><string>REPLACE_USER</string>
+    <key>LOGNAME</key><string>REPLACE_USER</string>
+    <key>SHELL</key><string>/bin/zsh</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>LANG</key><string>en_US.UTF-8</string>
+    <key>LC_ALL</key><string>en_US.UTF-8</string>
+    <key>TERM</key><string>tmux-256color</string>
+    <!-- Socket lives outside /tmp so macOS's periodic cleaner cannot delete a
+         live socket. Must match TMUX_TMPDIR exported from ~/.zshenv. -->
+    <key>TMUX_TMPDIR</key><string>/Users/REPLACE_USER/.local/state/tmux</string>
+  </dict>
+
+  <!-- SSH-spawned processes inherit a soft NOFILE of 256 on macOS. A tmux server
+       carrying pipe-panes plus attach channels for many sessions can reach that
+       and die. Verify with: sudo launchctl procinfo <pid> | grep maxfiles -->
+  <key>SoftResourceLimits</key><dict><key>NumberOfFiles</key><integer>8192</integer></dict>
+  <key>HardResourceLimits</key><dict><key>NumberOfFiles</key><integer>8192</integer></dict>
+
+  <key>StandardOutPath</key><string>/Users/REPLACE_USER/Library/Logs/tmux-daemon.log</string>
+  <key>StandardErrorPath</key><string>/Users/REPLACE_USER/Library/Logs/tmux-daemon.log</string>
+</dict>
+</plist>
