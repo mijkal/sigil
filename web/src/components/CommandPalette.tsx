@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { useLayoutStore } from '../stores/layoutStore';
 import { Modal } from '../ui/Modal';
+import { isEphemeralSession } from '../lib/sessionVisibility';
 
 interface CommandPaletteProps {
   onClose: () => void;
@@ -16,6 +17,9 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const filtered = sessions.filter((s) => {
+    let showEphemeral = false;
+    try { showEphemeral = localStorage.getItem('sigil_show_ephemeral') === '1'; } catch { /* ignore */ }
+    if (!showEphemeral && isEphemeralSession(s)) return false;
     if (!query) return true;
     const q = query.toLowerCase();
     return (

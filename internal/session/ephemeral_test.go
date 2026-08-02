@@ -17,6 +17,7 @@ func TestIsEphemeralName_Defaults(t *testing.T) {
 	ephemeral := []string{
 		"hostsh-0bb72231", "hostsh-a", "hostsh-",
 		"mctask-31ead29f", "mctask-",
+		"mcclean-31ead29f", "mcclean-",
 	}
 	for _, n := range ephemeral {
 		if !m.IsEphemeralName(n) {
@@ -96,8 +97,8 @@ func TestManagerWithoutMatcher_IsInert(t *testing.T) {
 func TestConfigDefaults_AbsentVsExplicitlyEmpty(t *testing.T) {
 	// Absent key → defaults applied. This is what makes the policy on-by-default
 	// for existing installs whose config predates it.
-	if got := config.DefaultEphemeralPatterns(); len(got) != 2 {
-		t.Fatalf("expected 2 default patterns, got %v", got)
+	if got := config.DefaultEphemeralPatterns(); len(got) != 3 {
+		t.Fatalf("expected 3 default patterns, got %v", got)
 	}
 	// Defaults must be a fresh slice each call — a shared backing array would let
 	// one caller's mutation leak into every other.
