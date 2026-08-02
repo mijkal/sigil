@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 
 // A sidebar widget. Two families share one config shape:
-//   'claude-usage' / 'codex-usage' — a coding-agent burndown (host + provider),
+//   provider usage widgets — coding-agent burndown + quota metadata when exposed,
 //       fed by the built-in aggregator; nothing to configure but the host.
 //   'command' — a generic monitor: run `command` on `host` every `intervalSec`
 //       and display its output. Point it at anything (df -h, docker ps, a usage
 //       script of your own).
-export type WidgetKind = 'claude-usage' | 'codex-usage' | 'command';
+export type WidgetKind = 'claude-usage' | 'codex-usage' | 'agy-usage' | 'command';
 
 export interface WidgetConfig {
   id: string;
@@ -16,6 +16,11 @@ export interface WidgetConfig {
   intervalSec: number;
   command?: string;     // kind === 'command'
   softTarget?: number;  // optional work-token soft budget for the 5h %-bar (usage widgets)
+  warningPct?: number;  // early-warning threshold against softTarget (default 80)
+  showModels?: boolean; // defaults true
+  showSparkline?: boolean; // defaults true
+  showCache?: boolean;  // defaults true
+  compact?: boolean;    // quota/reset + current-window essentials only
 }
 
 const LS_KEY = 'sigil_widgets';

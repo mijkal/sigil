@@ -13,10 +13,25 @@ function topModels(b: UsageBucket, n = 3): Array<[string, number]> {
     .slice(0, n);
 }
 
-// Claude Code / Codex usage burndown, fed by the host-side aggregator.
+const PROVIDER_BY_KIND = {
+  'claude-usage': 'claude',
+  'codex-usage': 'codex',
+  'agy-usage': 'agy',
+} as const;
+
+function resetLabel(data: AgentUsage): string | null {
+  const q = data.quota;
+  if (!q) return null;
+  if (q.reset_text) return `resets ${q.reset_text}`;
+  if (q.resets_at) return `resets ${new Date(q.resets_at * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+  return null;
+}
+
+// One composable provider-usage widget. The three built-ins are presets over the
+// same data contract and renderer, not separate provider-specific components.
 export function UsageWidget({ cfg }: { cfg: WidgetConfig }) {
   const client = useConnectionStore(s => s.client);
-  const provider = cfg.kind === 'codex-usage' ? 'codex' : 'claude';
+  const provider = cfg.kind === 'command' ? 'claude' : PROVIDER_BY_KIND[cfg.kind];
   const [data, setData] = useState<AgentUsage | null>(null);
   const [ts, setTs] = useState<number | null>(null);
   const [stale, setStale] = useState(false);
@@ -53,6 +68,10 @@ export function UsageWidget({ cfg }: { cfg: WidgetConfig }) {
     ? w5 / cfg.softTarget
     : (today && work(today) > 0 ? w5 / work(today) : 0);
   const overTarget = !!cfg.softTarget && w5 >= cfg.softTarget;
+  const warningPct = cfg.warningPct ?? 80;
+  const nearTarget = !!cfg.softTarget && frac * 100 >= warningPct;
+  const quotaPct = typeof data?.quota?.used_percent === 'number' ? data.quota.used_percent : null;
+  const reset = data ? resetLabel(data) : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '2px 2px 4px' }}>
@@ -75,6 +94,14 @@ export function UsageWidget({ cfg }: { cfg: WidgetConfig }) {
 
       {b5 && today && wk && (
         <>
+          {quotaPct !== null && (
+            <>
+              <Bar label="quota" frac={quotaPct / 100} value={`${Math.round(quotaPct)}%`} danger={quotaPct >= 90} />
+              <div style={{ fontSize: 9.5, color: quotaPct >= 90 ? 'var(--color-warning)' : 'var(--color-muted)', fontFamily: 'var(--font-mono)' }}>
+                {data.quota?.source === 'observed_error' ? 'limit observed' : 'provider reported'}{reset ? ` · ${reset}` : ''}
+              </div>
+            </>
+          )}
           <Bar
             label="5h"
             frac={frac}
@@ -84,38 +111,49 @@ export function UsageWidget({ cfg }: { cfg: WidgetConfig }) {
           <div style={{ display: 'flex', gap: 10, fontSize: 10.5, fontFamily: 'var(--font-mono)', color: 'var(--color-muted)' }}>
             <span>5h <span style={{ color: 'var(--color-text)' }}>{b5.msgs}</span> msg{cfg.softTarget ? ` · ${Math.round(frac * 100)}% of ${fmtTokens(cfg.softTarget)}` : ''}</span>
           </div>
-
-          {/* today / week stat pair */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 1 }}>
-            <Stat label="today" tokens={work(today)} msgs={today.msgs} />
-            <Stat label="7-day" tokens={work(wk)} msgs={wk.msgs} />
-          </div>
-
-          {/* per-model (today) */}
-          {topModels(today).length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
-              {(() => {
-                const tops = topModels(today);
-                const max = Math.max(1, ...tops.map(t => t[1]));
-                return tops.map(([m, v]) => (
-                  <Bar key={m} label={shortModel(m)} labelWidth={48} frac={v / max} value={fmtTokens(v)} />
-                ));
-              })()}
+          {quotaPct === null && nearTarget && (
+            <div style={{ fontSize: 9.5, color: 'var(--color-warning)', fontFamily: 'var(--font-mono)' }}>
+              local warning · {Math.round(frac * 100)}% of soft budget
             </div>
           )}
 
-          {/* 24h burn shape */}
-          {data.hourly?.some(v => v > 0) && (
-            <div style={{ marginTop: 3 }}>
-              <div style={{ fontSize: 9.5, color: 'var(--color-muted-dim)', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 1 }}>24h</div>
-              <Sparkline data={data.hourly} height={24} />
-            </div>
-          )}
+          {!cfg.compact && (
+            <>
+              {/* today / week stat pair */}
+              <div style={{ display: 'flex', gap: 8, marginTop: 1 }}>
+                <Stat label="today" tokens={work(today)} msgs={today.msgs} />
+                <Stat label="7-day" tokens={work(wk)} msgs={wk.msgs} />
+              </div>
 
-          {/* cache is huge & meters differently — show it quietly for context */}
-          <div style={{ fontSize: 9.5, color: 'var(--color-muted-dim)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
-            cache today {fmtTokens(today.cache)} · scanned {data.files} files
-          </div>
+              {/* per-model (today) */}
+              {cfg.showModels !== false && topModels(today).length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
+                  {(() => {
+                    const tops = topModels(today);
+                    const max = Math.max(1, ...tops.map(t => t[1]));
+                    return tops.map(([m, v]) => (
+                      <Bar key={m} label={shortModel(m)} labelWidth={48} frac={v / max} value={fmtTokens(v)} />
+                    ));
+                  })()}
+                </div>
+              )}
+
+              {/* 24h burn shape */}
+              {cfg.showSparkline !== false && data.hourly?.some(v => v > 0) && (
+                <div style={{ marginTop: 3 }}>
+                  <div style={{ fontSize: 9.5, color: 'var(--color-muted-dim)', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 1 }}>24h</div>
+                  <Sparkline data={data.hourly} height={24} />
+                </div>
+              )}
+
+              {/* cache is huge & meters differently — show it quietly for context */}
+              {cfg.showCache !== false && (
+                <div style={{ fontSize: 9.5, color: 'var(--color-muted-dim)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
+                  cache today {fmtTokens(today.cache)} · scanned {data.files} files
+                </div>
+              )}
+            </>
+          )}
         </>
       )}
     </div>
