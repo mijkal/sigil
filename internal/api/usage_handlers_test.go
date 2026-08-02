@@ -31,7 +31,7 @@ func TestAgentUsageCodexQuotaAndTokens(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	line := `{"timestamp":"2099-08-02T05:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":120,"cached_input_tokens":20,"output_tokens":30},"rate_limits":{"primary":{"used_percent":81.0,"window_minutes":10080,"resets_at":4078886400}}}}}`
+	line := `{"timestamp":"2099-08-02T05:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":120,"cached_input_tokens":20,"output_tokens":30}},"rate_limits":{"primary":{"used_percent":81.0,"window_minutes":10080,"resets_at":4078886400}}}}`
 	if err := os.WriteFile(p, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +43,23 @@ func TestAgentUsageCodexQuotaAndTokens(t *testing.T) {
 	b := got["last5h"].(map[string]any)
 	if b["in"] != float64(120) || b["out"] != float64(30) {
 		t.Fatalf("bucket = %#v", b)
+	}
+}
+
+func TestAgentUsageClaudeObservedReset(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "project", "run.jsonl")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"timestamp":"2099-08-02T05:00:00Z","payload":{"result":"You've hit your weekly limit · resets Aug 3, 12am (America/Los_Angeles)"}}`
+	if err := os.WriteFile(p, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := runUsageProbe(t, "claude", root)
+	q := got["quota"].(map[string]any)
+	if q["reset_text"] != "Aug 3, 12am (America/Los_Angeles)" {
+		t.Fatalf("quota = %#v", q)
 	}
 }
 
