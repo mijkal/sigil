@@ -217,5 +217,5 @@ func applyDefaults(cfg *Config) {
 // DefaultEphemeralPatterns is the built-in ephemeral-session glob set. Kept as a
 // function so callers cannot mutate a shared slice.
 func DefaultEphemeralPatterns() []string {
-	return []string{"hostsh-*", "mctask-*"}
+	return []string{"hostsh-*", "mctask-*", "mcclean-*"}
 }

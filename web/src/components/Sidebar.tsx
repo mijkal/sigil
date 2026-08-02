@@ -25,6 +25,7 @@ import { SessionRow } from './sidebar/SessionRow';
 import { NewSessionInput } from './sidebar/NewSessionInput';
 import { WidgetDock } from './widgets/WidgetDock';
 import { useWidgetStore } from '../stores/widgetStore';
+import { isEphemeralSession } from '../lib/sessionVisibility';
 
 export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: () => void; onOpenSetup?: () => void; onOpenSettings?: () => void } = {}) {
   const hosts      = useSessionStore(s => s.hosts);
@@ -49,6 +50,14 @@ export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: ()
   const [aboutOpen, setAboutOpen]       = React.useState(false);
   const [editingHost, setEditingHost]   = React.useState<Host | null>(null);
   const [newSessionFor, setNewSessionFor] = React.useState<string | null>(null);
+  const [showEphemeral, setShowEphemeral] = React.useState<boolean>(() => {
+    try { return localStorage.getItem('sigil_show_ephemeral') === '1'; } catch { return false; }
+  });
+  const toggleEphemeral = () => setShowEphemeral(prev => {
+    const next = !prev;
+    try { localStorage.setItem('sigil_show_ephemeral', next ? '1' : '0'); } catch { /* ignore */ }
+    return next;
+  });
   const [collapsedGroups, setCollapsedGroups] = React.useState<Set<GroupKey>>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sigil_collapsed_groups') ?? '[]') as GroupKey[];
@@ -84,6 +93,7 @@ export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: ()
   const sessionsByHost = React.useMemo(() => {
     const map = new Map<string, Session[]>();
     for (const s of sessions) {
+      if (!showEphemeral && isEphemeralSession(s)) continue;
       if (!map.has(s.host_name)) map.set(s.host_name, []);
       map.get(s.host_name)!.push(s);
     }
@@ -91,7 +101,7 @@ export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: ()
       map.set(k, [...v].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })));
     }
     return map;
-  }, [sessions]);
+  }, [sessions, showEphemeral]);
 
   const grouped = React.useMemo(() => groupHosts(hosts), [hosts]);
 
@@ -420,6 +430,12 @@ export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: ()
       {/* Footer */}
       <div style={{ ...st.footer, flexDirection: 'column', gap: '7px', alignItems: 'stretch' }}>
         <WorkspaceSelector />
+        <button
+          onClick={toggleEphemeral}
+          title={showEphemeral ? 'Hide Drydock and one-shot helper sessions' : 'Show Drydock and one-shot helper sessions'}
+          aria-pressed={showEphemeral}
+          style={{ ...st.addHostBtn, alignSelf: 'flex-start', opacity: showEphemeral ? 1 : 0.65 }}
+        >{showEphemeral ? 'Hide helpers' : 'Show helpers'}</button>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <button style={{ ...st.addHostBtn, whiteSpace: 'nowrap', flexShrink: 0 }} onClick={() => setShowAddHost(true)}>+ Add Host</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
