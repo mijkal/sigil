@@ -22,8 +22,8 @@ import (
 //
 // Providers:
 //   claude → ~/.claude/projects/**/*.jsonl   (Claude Code)
-//   codex  → ~/.codex/**/*.jsonl             (OpenAI Codex CLI) — best-effort, same
-//            token/usage shape; empty result if the host doesn't run codex.
+//   codex  → ~/.codex/**/*.jsonl             (OpenAI Codex CLI)
+//   agy    → ~/.gemini/tmp/**/chats/*.json   (Antigravity / Gemini CLI)
 //
 // NOTE: there is no scriptable `claude usage` command and the official Max
 // rate-limit percentages are fetched live by the CLI, not cached on disk — so this
@@ -34,6 +34,7 @@ import (
 var providerRoots = map[string]string{
 	"claude": "$HOME/.claude/projects",
 	"codex":  "$HOME/.codex",
+	"agy":    "$HOME/.gemini/tmp",
 }
 
 type usageCacheEntry struct {
@@ -80,7 +81,7 @@ func (s *Server) AgentUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	root, ok := providerRoots[provider]
 	if host == "" || !ok {
-		http.Error(w, "host and a known provider (claude|codex) are required", http.StatusBadRequest)
+		http.Error(w, "host and a known provider (claude|codex|agy) are required", http.StatusBadRequest)
 		return
 	}
 
@@ -203,15 +204,19 @@ func (s *Server) Exec(w http.ResponseWriter, r *http.Request) {
 // 7d buckets (per model), and builds a 24h hourly sparkline. It extracts the few
 // fields it needs with regexes rather than json.loads()-ing every record — ~2x
 // faster and far less CPU over a heavy transcript history. Tolerant of both the
-// Claude Code and Codex usage shapes; never throws — prints zeros on any trouble.
+// Claude Code, Codex, and Antigravity usage shapes; never throws — prints zeros
+// on any trouble. Codex's official rate-limit telemetry and Claude's observed
+// quota errors are returned separately from locally counted token usage.
 const agentUsagePy = `
 import os, glob, time, datetime, sys, re, json
 root = os.path.expandvars(os.environ.get("SIGIL_ROOT",""))
+provider = os.environ.get("SIGIL_PROVIDER","claude")
 now = time.time(); H = 3600
 cutoff = now - 8*86400
 def bucket(): return {"in":0,"out":0,"cache":0,"msgs":0,"models":{}}
 b5, today, wk = bucket(), bucket(), bucket()
 hourly = [0]*24
+quota = None
 midnight = datetime.datetime.now().replace(hour=0,minute=0,second=0,microsecond=0).timestamp()
 re_ts  = re.compile(r'"timestamp":"([^"]+)"')
 re_ts2 = re.compile(r'"(?:ts|created_at)":"?([^",}]+)"?')
@@ -223,16 +228,68 @@ re_cc  = re.compile(r'"cache_creation_input_tokens":\s*(\d+)')
 re_cd  = re.compile(r'"cached_tokens":\s*(\d+)')
 scanned = 0; files = []
 try:
-    files = [f for f in glob.glob(root+"/**/*.jsonl", recursive=True) if os.path.getmtime(f) >= cutoff]
+    pattern = "/**/chats/*.json" if provider == "agy" else "/**/*.jsonl"
+    files = [f for f in glob.glob(root+pattern, recursive=True) if os.path.getmtime(f) >= cutoff]
 except Exception:
     files = []
 def g(rx, line):
     x = rx.search(line); return int(x.group(1)) if x else 0
+def add(t, model, it, ot, ca=0):
+    global scanned
+    scanned += 1
+    def put(bk):
+        bk["in"] += it; bk["out"] += ot; bk["cache"] += ca; bk["msgs"] += 1
+        bk["models"][model] = bk["models"].get(model,0) + it + ot
+    if t >= now-5*H: put(b5)
+    if t >= midnight: put(today)
+    if t >= now-7*86400: put(wk)
+    if t >= now-24*H:
+        idx = int((t-(now-24*H))//H)
+        if 0 <= idx < 24: hourly[idx] += it + ot
 for fp in files:
+    if provider == "agy":
+        try:
+            doc = json.load(open(fp, errors="ignore"))
+            for msg in doc.get("messages", []):
+                tok = msg.get("tokens") or {}
+                if msg.get("type") != "gemini" or not tok: continue
+                raw = msg.get("timestamp") or doc.get("lastUpdated") or doc.get("startTime")
+                try: t = datetime.datetime.fromisoformat(str(raw).replace("Z","+00:00")).timestamp()
+                except Exception: continue
+                if t < cutoff: continue
+                add(t, msg.get("model") or "gemini", int(tok.get("input") or 0),
+                    int(tok.get("output") or 0) + int(tok.get("thoughts") or 0),
+                    int(tok.get("cached") or 0))
+        except Exception: pass
+        continue
     try: fh = open(fp, errors="ignore")
     except Exception: continue
     with fh:
         for line in fh:
+            if provider == "codex" and '"rate_limits"' in line and '"token_count"' in line:
+                try:
+                    obj = json.loads(line); payload = obj.get("payload") or {}
+                    info = payload.get("info") or {}; last = info.get("last_token_usage") or {}
+                    raw = obj.get("timestamp")
+                    t = datetime.datetime.fromisoformat(str(raw).replace("Z","+00:00")).timestamp()
+                    add(t, str(info.get("model") or "codex"), int(last.get("input_tokens") or 0),
+                        int(last.get("output_tokens") or 0), int(last.get("cached_input_tokens") or 0))
+                    rl = info.get("rate_limits") or {}; primary = rl.get("primary") or {}
+                    if primary and (quota is None or t >= quota.get("observed_at",0)):
+                        quota = {"used_percent": primary.get("used_percent"),
+                                 "window_minutes": primary.get("window_minutes"),
+                                 "resets_at": primary.get("resets_at"),
+                                 "limit_name": rl.get("limit_name") or "Codex plan",
+                                 "status": "limited" if rl.get("rate_limit_reached_type") else "ok",
+                                 "source": "provider", "observed_at": t}
+                except Exception: pass
+                continue
+            if provider == "claude" and ('hit your weekly limit' in line.lower() or 'hit your limit' in line.lower()):
+                reset = re.search(r'resets? ([^"\\n}]+)', line, re.I)
+                quota = {"used_percent":100, "resets_at":None,
+                         "reset_text": reset.group(1).replace('\\u00b7','').strip() if reset else None,
+                         "limit_name":"Claude plan", "status":"exhausted",
+                         "source":"observed_error", "observed_at":os.path.getmtime(fp)}
             if '"usage"' not in line: continue
             m = re_ts.search(line) or re_ts2.search(line)
             if not m: continue
@@ -250,18 +307,9 @@ for fp in files:
             if model == "<synthetic>": continue
             it = g(re_in, line); ot = g(re_out, line)
             ca = g(re_cr, line) + g(re_cc, line) + g(re_cd, line)
-            scanned += 1
-            def add(bk):
-                bk["in"] += it; bk["out"] += ot; bk["cache"] += ca; bk["msgs"] += 1
-                bk["models"][model] = bk["models"].get(model,0) + it + ot
-            if t >= now-5*H: add(b5)
-            if t >= midnight: add(today)
-            if t >= now-7*86400: add(wk)
-            if t >= now-24*H:
-                idx = int((t-(now-24*H))//H)
-                if 0 <= idx < 24: hourly[idx] += it + ot
-out = {"provider": os.environ.get("SIGIL_PROVIDER","claude"),
+            add(t, model, it, ot, ca)
+out = {"provider": provider,
        "generated_at": int(now), "scanned": scanned, "files": len(files),
-       "last5h": b5, "today": today, "week": wk, "hourly": hourly}
+       "last5h": b5, "today": today, "week": wk, "hourly": hourly, "quota":quota}
 sys.stdout.write(json.dumps(out))
 `

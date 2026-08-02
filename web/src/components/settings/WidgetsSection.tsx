@@ -14,6 +14,7 @@ const lbl: React.CSSProperties = {
 const KIND_LABEL: Record<WidgetKind, string> = {
   'claude-usage': 'Claude usage',
   'codex-usage': 'Codex usage',
+  'agy-usage': 'agy usage',
   'command': 'Command monitor',
 };
 
@@ -48,7 +49,8 @@ export function WidgetsSection() {
     if (kind === 'command') {
       add({ kind, name: 'Command', host: firstConnected, command: 'df -h /', intervalSec: 60 });
     } else {
-      add({ kind, name: kind === 'codex-usage' ? 'Codex usage' : 'Claude usage', host: usageHost, intervalSec: 90 });
+      const name = kind === 'codex-usage' ? 'Codex usage' : kind === 'agy-usage' ? 'agy usage' : 'Claude usage';
+      add({ kind, name, host: usageHost, intervalSec: 90 });
     }
   };
 
@@ -57,20 +59,20 @@ export function WidgetsSection() {
       <div>
         <p style={{ margin: '0 0 4px', fontSize: 12.5, color: 'var(--color-text)' }}>Sidebar widgets</p>
         <p style={{ margin: 0, fontSize: 11.5, color: 'var(--color-muted)', lineHeight: 1.5 }}>
-          Glanceable monitors pinned to the sidebar. <strong>Claude / Codex usage</strong> read the agent's local
+          Glanceable monitors pinned to the sidebar. <strong>Claude / Codex / agy usage</strong> read the agent's local
           transcripts on a host and show a 5-hour / today / 7-day token burndown. A <strong>Command monitor</strong>
           runs any command on a host every N seconds and displays its output.
         </p>
         <p style={{ margin: '5px 0 0', fontSize: 10.5, color: 'var(--color-muted-dim)', lineHeight: 1.5 }}>
-          Note: there is no scriptable <code>claude usage</code> — the usage widgets compute a real token/message
-          burndown from transcripts, not the official Max limit percentages (those are only shown in the CLI's
-          interactive <code>/usage</code>).
+          Codex includes its provider-reported quota and reset. Claude shows an observed reset after a quota response
+          plus configurable early warning from its local token budget; its interactive <code>/usage</code> percentage is
+          not exposed as a stable scriptable API. agy reads Antigravity/Gemini chat token records.
         </p>
       </div>
 
       {/* Add buttons */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {(['claude-usage', 'codex-usage', 'command'] as WidgetKind[]).map(k => (
+        {(['claude-usage', 'codex-usage', 'agy-usage', 'command'] as WidgetKind[]).map(k => (
           <button key={k} onClick={() => addPreset(k)} style={{
             ...input, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
             color: 'var(--color-accent)', borderColor: 'color-mix(in srgb, var(--color-accent) 45%, var(--color-border))',
@@ -140,12 +142,31 @@ function WidgetEditor({ cfg, hosts, onChange, onRemove, onUp, onDown }: {
             value={cfg.command ?? ''} onChange={e => onChange({ command: e.target.value })} />
         </label>
       ) : (
-        <label style={{ maxWidth: 220 }}>
-          <span style={lbl}>5h soft target (work tokens, optional)</span>
-          <input type="number" min={0} style={{ ...input, width: '100%' }}
-            placeholder="e.g. 2000000 for a % bar"
-            value={cfg.softTarget ?? ''} onChange={e => onChange({ softTarget: e.target.value ? Math.max(0, parseInt(e.target.value, 10) || 0) : undefined })} />
-        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <label style={{ flex: '1 1 190px' }}>
+              <span style={lbl}>5h soft target (work tokens, optional)</span>
+              <input type="number" min={0} style={{ ...input, width: '100%' }}
+                placeholder="e.g. 2000000"
+                value={cfg.softTarget ?? ''} onChange={e => onChange({ softTarget: e.target.value ? Math.max(0, parseInt(e.target.value, 10) || 0) : undefined })} />
+            </label>
+            <label style={{ flex: '0 1 110px' }}>
+              <span style={lbl}>Warn at %</span>
+              <input type="number" min={1} max={100} style={{ ...input, width: '100%' }}
+                value={cfg.warningPct ?? 80} onChange={e => onChange({ warningPct: Math.min(100, Math.max(1, parseInt(e.target.value || '80', 10))) })} />
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, color: 'var(--color-muted)', fontFamily: 'var(--font-mono)' }}>
+            {([
+              ['compact', 'compact'], ['showModels', 'models'], ['showSparkline', '24h chart'], ['showCache', 'cache/scanned'],
+            ] as const).map(([key, label]) => (
+              <label key={key} style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
+                <input type="checkbox" checked={key === 'compact' ? !!cfg.compact : cfg[key] !== false} onChange={e => onChange({ [key]: e.target.checked })} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

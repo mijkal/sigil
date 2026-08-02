@@ -223,9 +223,9 @@ export class SigilClient {
   }
 
   // ── Widgets ────────────────────────────────────────────────────────────────
-  // Coding-agent usage burndown (Claude Code / Codex) computed host-side from
+  // Coding-agent usage/capacity (Claude Code / Codex / Antigravity) computed host-side from
   // local transcripts.
-  async getAgentUsage(host: string, provider: 'claude' | 'codex'): Promise<AgentUsage> {
+  async getAgentUsage(host: string, provider: 'claude' | 'codex' | 'agy'): Promise<AgentUsage> {
     return this._get<AgentUsage>(
       `/api/v1/agent-usage?host=${encodeURIComponent(host)}&provider=${encodeURIComponent(provider)}`);
   }

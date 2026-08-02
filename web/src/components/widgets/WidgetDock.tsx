@@ -47,6 +47,7 @@ function IconX() {
 const KIND_ICON: Record<WidgetKind, JSX.Element> = {
   'claude-usage': <IconGauge />,
   'codex-usage': <IconGauge />,
+  'agy-usage': <IconGauge />,
   'command': <IconCommand />,
 };
 
@@ -126,7 +127,7 @@ export function WidgetDock({ onManage }: { onManage?: () => void }) {
               }}
             >
               + Add a widget
-              <div style={{ fontSize: 9.5, color: 'var(--color-muted-dim)', marginTop: 2 }}>Claude usage · a command monitor</div>
+              <div style={{ fontSize: 9.5, color: 'var(--color-muted-dim)', marginTop: 2 }}>Claude · Codex · agy capacity</div>
             </button>
           ) : (
             widgets.map(w => <WidgetCard key={w.id} cfg={w} />)

@@ -192,6 +192,16 @@ export interface AgentUsage {
   today: UsageBucket;
   week: UsageBucket;
   hourly: number[]; // 24 values, oldest→newest (work tokens/hour)
+  quota?: {
+    used_percent?: number | null;
+    window_minutes?: number | null;
+    resets_at?: number | null;
+    reset_text?: string | null;
+    limit_name?: string | null;
+    status?: 'ok' | 'limited' | 'exhausted';
+    source?: 'provider' | 'observed_error';
+    observed_at?: number;
+  } | null;
 }
 
 // Result of GET /api/v1/exec (generic command widget).

@@ -9,7 +9,7 @@ import (
 // can inject real values via `-ldflags -X` — the Go linker can only set string
 // VARIABLES, so the previous `const Version` silently ignored the ldflag.
 var (
-	Version   = "0.1.7"
+	Version   = "0.1.8"
 	GitCommit = "dev"     // short git SHA, injected at build time
 	BuildDate = "unknown" // RFC3339 UTC, injected at build time
 )
@@ -95,8 +95,8 @@ type Session struct {
 	Question     string    `json:"question,omitempty"`
 	SignalKind   string    `json:"signal_kind,omitempty"` // "permission" | "question"
 	WaitingSince time.Time `json:"waiting_since,omitempty"`
-	StartDir   string       `json:"start_dir,omitempty"`
-	StartCmd   string       `json:"start_cmd,omitempty"`
+	StartDir     string    `json:"start_dir,omitempty"`
+	StartCmd     string    `json:"start_cmd,omitempty"`
 	// LogPath is the durable pipe-pane log file for this session ON THE TARGET
 	// HOST ("~/" relative to the target user's home). Derived, not stored:
 	// readable back via GET /api/v1/hosts/{host}/files?path=<log_path>.
@@ -109,7 +109,7 @@ type ScrollbackChunk struct {
 	SessionID string    `json:"session_id"`
 	Sequence  int64     `json:"sequence"`
 	Timestamp time.Time `json:"timestamp"`
-	Data      []byte    `json:"data"`      // base64-encoded by encoding/json automatically
+	Data      []byte    `json:"data"` // base64-encoded by encoding/json automatically
 	LineCount int       `json:"line_count"`
 
 	// Internal — used for FTS indexing, not sent to clients
@@ -188,9 +188,9 @@ type DirEntry struct {
 
 // FileContent is the content of a remote file, limited to 512 KB.
 type FileContent struct {
-	Path        string `json:"path"` // resolved (absolute) path
-	Content     string `json:"content"`
-	Truncated   bool   `json:"truncated"`
+	Path      string `json:"path"` // resolved (absolute) path
+	Content   string `json:"content"`
+	Truncated bool   `json:"truncated"`
 }
 
 // DirListing is a resolved directory path plus its entries.
