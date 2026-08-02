@@ -274,7 +274,7 @@ for fp in files:
                     t = datetime.datetime.fromisoformat(str(raw).replace("Z","+00:00")).timestamp()
                     add(t, str(info.get("model") or "codex"), int(last.get("input_tokens") or 0),
                         int(last.get("output_tokens") or 0), int(last.get("cached_input_tokens") or 0))
-                    rl = info.get("rate_limits") or {}; primary = rl.get("primary") or {}
+                    rl = payload.get("rate_limits") or {}; primary = rl.get("primary") or {}
                     if primary and (quota is None or t >= quota.get("observed_at",0)):
                         quota = {"used_percent": primary.get("used_percent"),
                                  "window_minutes": primary.get("window_minutes"),
@@ -285,11 +285,24 @@ for fp in files:
                 except Exception: pass
                 continue
             if provider == "claude" and ('hit your weekly limit' in line.lower() or 'hit your limit' in line.lower()):
-                reset = re.search(r'resets? ([^"\\n}]+)', line, re.I)
-                quota = {"used_percent":100, "resets_at":None,
-                         "reset_text": reset.group(1).replace('\\u00b7','').strip() if reset else None,
-                         "limit_name":"Claude plan", "status":"exhausted",
-                         "source":"observed_error", "observed_at":os.path.getmtime(fp)}
+                try:
+                    obj = json.loads(line); stack = [obj]; texts = []
+                    while stack:
+                        value = stack.pop()
+                        if isinstance(value, dict): stack.extend(value.values())
+                        elif isinstance(value, list): stack.extend(value)
+                        elif isinstance(value, str): texts.append(value)
+                    message = next((x for x in texts if 'hit your' in x.lower() and 'limit' in x.lower()), '')
+                    reset = re.search(r'resets? (.+)', message, re.I)
+                    rawts = obj.get("timestamp")
+                    try: observed = datetime.datetime.fromisoformat(str(rawts).replace("Z","+00:00")).timestamp()
+                    except Exception: observed = os.path.getmtime(fp)
+                    if quota is None or observed >= quota.get("observed_at",0):
+                        quota = {"used_percent":100, "resets_at":None,
+                                 "reset_text": reset.group(1).strip() if reset else None,
+                                 "limit_name":"Claude plan", "status":"exhausted",
+                                 "source":"observed_error", "observed_at":observed}
+                except Exception: pass
             if '"usage"' not in line: continue
             m = re_ts.search(line) or re_ts2.search(line)
             if not m: continue
