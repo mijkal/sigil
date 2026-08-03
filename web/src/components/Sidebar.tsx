@@ -25,7 +25,7 @@ import { SessionRow } from './sidebar/SessionRow';
 import { NewSessionInput } from './sidebar/NewSessionInput';
 import { WidgetDock } from './widgets/WidgetDock';
 import { useWidgetStore } from '../stores/widgetStore';
-import { isEphemeralSession } from '../lib/sessionVisibility';
+import { isSessionHidden } from '../lib/sessionVisibility';
 
 export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: () => void; onOpenSetup?: () => void; onOpenSettings?: () => void } = {}) {
   const hosts      = useSessionStore(s => s.hosts);
@@ -93,7 +93,7 @@ export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: ()
   const sessionsByHost = React.useMemo(() => {
     const map = new Map<string, Session[]>();
     for (const s of sessions) {
-      if (!showEphemeral && isEphemeralSession(s)) continue;
+      if (isSessionHidden(s, { showEphemeral, isOpen: openSessionIds.has(s.id) })) continue;
       if (!map.has(s.host_name)) map.set(s.host_name, []);
       map.get(s.host_name)!.push(s);
     }
@@ -101,7 +101,7 @@ export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: ()
       map.set(k, [...v].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })));
     }
     return map;
-  }, [sessions, showEphemeral]);
+  }, [sessions, showEphemeral, openSessionIds]);
 
   const grouped = React.useMemo(() => groupHosts(hosts), [hosts]);
 
