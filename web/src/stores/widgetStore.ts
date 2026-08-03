@@ -112,5 +112,13 @@ export function fmtTokens(n: number): string {
 // Trim a full model id to something legible in a tight column
 // (claude-opus-4-8 → opus-4-8; claude-fable-5 → fable-5).
 export function shortModel(m: string): string {
-  return m.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+  // Drop the vendor prefix and any trailing build date. Only `claude-` was
+  // stripped before, so codex/gemini rows ("gpt-5-codex", "gemini-3-pro") kept
+  // their full names and were the first to clip in a narrow sidebar.
+  return m
+    .replace(/^(claude|anthropic|openai|google)[-/]/, '')
+    .replace(/^gpt-/, '')
+    .replace(/^gemini-/, '')
+    .replace(/-\d{8}$/, '')
+    .replace(/-latest$/, '');
 }

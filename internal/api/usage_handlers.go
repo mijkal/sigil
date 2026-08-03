@@ -218,6 +218,51 @@ b5, today, wk = bucket(), bucket(), bucket()
 hourly = [0]*24
 quota = None
 midnight = datetime.datetime.now().replace(hour=0,minute=0,second=0,microsecond=0).timestamp()
+
+_RE_TZ = re.compile(r'\(\s*([A-Za-z]+/[A-Za-z_+\-0-9]+)\s*\)')
+_RE_CLOCK = re.compile(r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)', re.I)
+_RE_DATE = re.compile(r'([A-Z][a-z]{2})\s+(\d{1,2})')
+_MONTHS = {m: i + 1 for i, m in enumerate(
+    ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"])}
+
+def parse_reset(text, observed):
+    """"resets Aug 3 at 12am (America/Los_Angeles)" -> epoch seconds, or None.
+
+    The zone is stated IN the message and must be honoured. Reading that clock as
+    UTC is not a rounding error: the same mistake in Drydock's own governor turned
+    a limit that had already reset into one seven hours in the future and held
+    every dispatch until then. Returns None when the text names no usable time,
+    because a guessed reset is worse than no reset — None leaves the caller
+    showing the raw text instead of a confident wrong instant.
+    """
+    if not text: return None
+    try:
+        tz = None
+        mtz = _RE_TZ.search(text)
+        if mtz:
+            try:
+                import zoneinfo
+                tz = zoneinfo.ZoneInfo(mtz.group(1))
+            except Exception:
+                tz = None
+        if tz is None:
+            tz = datetime.datetime.now().astimezone().tzinfo
+        mc = _RE_CLOCK.search(text)
+        if not mc: return None
+        hour = int(mc.group(1)) % 12
+        if (mc.group(3) or "").lower() == "pm": hour += 12
+        minute = int(mc.group(2) or 0)
+        base = datetime.datetime.fromtimestamp(observed, tz)
+        md = _RE_DATE.search(text)
+        if md and md.group(1) in _MONTHS:
+            cand = base.replace(month=_MONTHS[md.group(1)], day=int(md.group(2)),
+                                hour=hour, minute=minute, second=0, microsecond=0)
+        else:
+            cand = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if cand <= base: cand += datetime.timedelta(days=1)
+        return cand.timestamp()
+    except Exception:
+        return None
 re_ts  = re.compile(r'"timestamp":"([^"]+)"')
 re_ts2 = re.compile(r'"(?:ts|created_at)":"?([^",}]+)"?')
 re_model = re.compile(r'"model":"([^"]+)"')
@@ -286,20 +331,45 @@ for fp in files:
                 continue
             if provider == "claude" and ('hit your weekly limit' in line.lower() or 'hit your limit' in line.lower()):
                 try:
-                    obj = json.loads(line); stack = [obj]; texts = []
+                    obj = json.loads(line)
+                    # ONLY a record Claude Code itself flagged as an API error.
+                    # Without this gate the scan matched an ASSISTANT MESSAGE in
+                    # which an agent quoted the limit text while describing it —
+                    # on 2026-08-03 the widget read 100% exhausted off a markdown
+                    # table in a status report (the captured reset even carried
+                    # the trailing "| " of the table cell). Prose about a limit is
+                    # byte-for-byte identical to a limit; the flag is the only
+                    # thing that tells them apart. 422 real error records carry
+                    # it, and all 37 prose mentions do not.
+                    if not obj.get("isApiErrorMessage"): continue
+                    stack = [obj]; texts = []
                     while stack:
                         value = stack.pop()
                         if isinstance(value, dict): stack.extend(value.values())
                         elif isinstance(value, list): stack.extend(value)
                         elif isinstance(value, str): texts.append(value)
                     message = next((x for x in texts if 'hit your' in x.lower() and 'limit' in x.lower()), '')
-                    reset = re.search(r'resets? (.+)', message, re.I)
+                    # Stop at the sentence, not the end of the line: the old
+                    # greedy (.+) swallowed whatever followed in the same string.
+                    reset = re.search(r'resets? ([^\n\r|]+)', message, re.I)
+                    # strip() also drops a trailing markdown backtick (chr(96)) —
+                    # written this way because this whole script lives inside a
+                    # Go RAW STRING, which a literal backtick would terminate.
+                    reset_text = reset.group(1).strip(' ' + chr(96) + '.').strip() if reset else None
                     rawts = obj.get("timestamp")
                     try: observed = datetime.datetime.fromisoformat(str(rawts).replace("Z","+00:00")).timestamp()
                     except Exception: observed = os.path.getmtime(fp)
+                    resets_at = parse_reset(reset_text, observed)
+                    # An exhausted window that has already reset is history, not
+                    # status. Reporting it as current is how the widget sat at
+                    # 100% for the twelve hours AFTER the limit cleared.
+                    if resets_at is not None and resets_at <= now: continue
                     if quota is None or observed >= quota.get("observed_at",0):
-                        quota = {"used_percent":100, "resets_at":None,
-                                 "reset_text": reset.group(1).strip() if reset else None,
+                        quota = {"used_percent":100,
+                                 "resets_at": (datetime.datetime.fromtimestamp(
+                                     resets_at, datetime.timezone.utc).isoformat().replace("+00:00","Z")
+                                     if resets_at else None),
+                                 "reset_text": reset_text,
                                  "limit_name":"Claude plan", "status":"exhausted",
                                  "source":"observed_error", "observed_at":observed}
                 except Exception: pass

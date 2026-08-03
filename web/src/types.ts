@@ -195,7 +195,9 @@ export interface AgentUsage {
   quota?: {
     used_percent?: number | null;
     window_minutes?: number | null;
-    resets_at?: number | null;
+    // epoch seconds (codex telemetry) or an ISO-8601 string (claude, resolved
+    // from the reset sentence in the CLI's own limit notice).
+    resets_at?: number | string | null;
     reset_text?: string | null;
     limit_name?: string | null;
     status?: 'ok' | 'limited' | 'exhausted';

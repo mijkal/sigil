@@ -19,11 +19,33 @@ const PROVIDER_BY_KIND = {
   'agy-usage': 'agy',
 } as const;
 
+// `resets_at` arrives as epoch seconds (codex telemetry) or an ISO string
+// (claude, resolved from the CLI's own reset sentence). Normalise before use.
+function resetAtMs(v: number | string | null | undefined): number | null {
+  if (v == null) return null;
+  if (typeof v === 'number') return v > 1e11 ? v : v * 1000;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? null : t;
+}
+
 function resetLabel(data: AgentUsage): string | null {
   const q = data.quota;
   if (!q) return null;
+  // A RESOLVED instant beats the raw sentence: it is rendered in the viewer's own
+  // locale and, more importantly, it can say how long is left. The raw text was
+  // preferred before, which is why the widget kept showing "resets Aug 3 at 12am"
+  // hours after Aug 3 12am had passed.
+  const ms = resetAtMs(q.resets_at);
+  if (ms != null) {
+    const when = new Date(ms).toLocaleString([], {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+    const mins = Math.round((ms - Date.now()) / 60000);
+    if (mins <= 0) return `reset ${when}`;
+    const left = mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ''}`;
+    return `resets in ${left} · ${when}`;
+  }
   if (q.reset_text) return `resets ${q.reset_text}`;
-  if (q.resets_at) return `resets ${new Date(q.resets_at * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
   return null;
 }
 
@@ -96,14 +118,21 @@ export function UsageWidget({ cfg }: { cfg: WidgetConfig }) {
         <>
           {quotaPct !== null && (
             <>
-              <Bar label="quota" frac={quotaPct / 100} value={`${Math.round(quotaPct)}%`} danger={quotaPct >= 90} />
-              <div style={{ fontSize: 9.5, color: quotaPct >= 90 ? 'var(--color-warning)' : 'var(--color-muted)', fontFamily: 'var(--font-mono)' }}>
+              <Bar label="quota" labelWidth="5ch" frac={quotaPct / 100} value={`${Math.round(quotaPct)}%`} danger={quotaPct >= 90} />
+              <div style={{
+                fontSize: 9.5, color: quotaPct >= 90 ? 'var(--color-warning)' : 'var(--color-muted)',
+                fontFamily: 'var(--font-mono)',
+                // Wrap rather than overflow: this line carries the reset time,
+                // which is the whole point of showing an exhausted quota.
+                whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.35,
+              }} title={reset ?? undefined}>
                 {data.quota?.source === 'observed_error' ? 'limit observed' : 'provider reported'}{reset ? ` · ${reset}` : ''}
               </div>
             </>
           )}
           <Bar
             label="5h"
+            labelWidth="5ch"
             frac={frac}
             value={fmtTokens(w5)}
             danger={overTarget}
@@ -131,8 +160,12 @@ export function UsageWidget({ cfg }: { cfg: WidgetConfig }) {
                   {(() => {
                     const tops = topModels(today);
                     const max = Math.max(1, ...tops.map(t => t[1]));
+                    // One column wide enough for the LONGEST name in this group,
+                    // so the rows stay aligned and none of them ellipsizes. A
+                    // fixed 48px clipped "sonnet-5" and every codex/gemini name.
+                    const w = `${Math.max(...tops.map(([m]) => shortModel(m).length))}ch`;
                     return tops.map(([m, v]) => (
-                      <Bar key={m} label={shortModel(m)} labelWidth={48} frac={v / max} value={fmtTokens(v)} />
+                      <Bar key={m} label={shortModel(m)} labelWidth={w} frac={v / max} value={fmtTokens(v)} />
                     ));
                   })()}
                 </div>

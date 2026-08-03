@@ -22,13 +22,24 @@ export function Sparkline({ data, width = 200, height = 26, accent = 'var(--colo
 }
 
 // A labelled horizontal bar (0..1 fill), with a value on the right.
-export function Bar({ label, frac, value, accent = 'var(--color-accent)', danger = false, labelWidth = 30 }: {
-  label: string; frac: number; value: string; accent?: string; danger?: boolean; labelWidth?: number;
+//
+// labelWidth is in `ch` by default because every label here renders in the mono
+// font, where 1ch is exactly one character — so "5ch" fits five characters with
+// no guesswork. The old fixed 30px truncated "quota" to "quo…" and clipped every
+// model name; a pixel width cannot know how wide the user's font is.
+export function Bar({ label, frac, value, accent = 'var(--color-accent)', danger = false, labelWidth }: {
+  label: string; frac: number; value: string; accent?: string; danger?: boolean;
+  labelWidth?: number | string;
 }) {
+  // Default to the label's own length, so a caller that says nothing still gets
+  // a readable label rather than a clipped one.
+  const width = labelWidth == null
+    ? `${Math.max(2, label.length)}ch`
+    : (typeof labelWidth === 'number' ? labelWidth : labelWidth);
   const col = danger ? 'var(--color-danger)' : accent;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
-      <span style={{ color: 'var(--color-muted)', width: labelWidth, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={label}>{label}</span>
+      <span style={{ color: 'var(--color-muted)', width, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={label}>{label}</span>
       <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'color-mix(in srgb, var(--color-border) 60%, transparent)', overflow: 'hidden' }}>
         <div style={{ width: `${Math.max(0, Math.min(1, frac)) * 100}%`, height: '100%', background: col, borderRadius: 3, transition: 'width 0.4s ease-out' }} />
       </div>
