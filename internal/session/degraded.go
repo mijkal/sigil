@@ -1,5 +1,9 @@
 package session
 
+import (
+	sigil "sigil.dev/sigil/pkg/sigil"
+)
+
 // Degraded-discovery detection.
 //
 // WHY THIS EXISTS — the 2026-07-29 session loss:
@@ -34,6 +38,44 @@ const (
 	// well inside the collapse an exhausted SSH channel pool produces.
 	degradedFloorRatio = 0.34
 )
+
+// countWorkLive / countWorkRows count only NON-ephemeral sessions.
+//
+// The cliff heuristic below assumes sessions come and go at human pace. Ephemeral
+// orchestrator sessions (`hostsh-*`, `mctask-*`) violate that by construction:
+// Drydock creates a burst, each one exits within seconds, and the population
+// really does collapse between two polls. Feeding them to the guard made every
+// such burst look exactly like SSH exhaustion.
+//
+// That was not merely noisy, it LATCHED. `decayPeak` — the escape hatch that
+// lets a genuinely shrunken host stop being measured against a peak it will
+// never reach again — only runs on the believed branch, which a shrunken host
+// can never reach. On utopia peak_seen stuck at 42 while the truth was 3, so
+// pruning was suppressed permanently and 223 orphaned rows accumulated with no
+// way to ever reclaim them.
+//
+// Measuring the guard over the population it exists to PROTECT fixes both: work
+// sessions are stable and human-paced, so the cliff signal means what it claims,
+// and an ephemeral burst can no longer move the reference at all.
+func (m *Manager) countWorkLive(sessions map[string]sigil.Session) int {
+	n := 0
+	for name := range sessions {
+		if !m.IsEphemeralName(name) {
+			n++
+		}
+	}
+	return n
+}
+
+func (m *Manager) countWorkRows(rows []sigil.Session) int {
+	n := 0
+	for _, s := range rows {
+		if !m.IsEphemeralName(s.Name) {
+			n++
+		}
+	}
+	return n
+}
 
 // discoveryLooksDegraded reports whether a discovery result is too thin to be
 // believed, and the peak it was compared against.

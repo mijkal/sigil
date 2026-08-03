@@ -910,7 +910,8 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 			Str("host", hostName).
 			Int("existing", len(existing)).
 			Msg("auto-resurrect still in flight — skipping prune this cycle")
-	} else if degraded, peak := m.discoveryLooksDegraded(hostName, len(sessions), len(existing)); degraded {
+	} else if degraded, peak := m.discoveryLooksDegraded(
+		hostName, m.countWorkLive(sessions), m.countWorkRows(existing)); degraded {
 		// Discovery RAN but came back implausibly thin. This is the 2026-07-29
 		// failure: a client retry loop had exhausted the host's SSH channels
 		// (MaxSessions defaults to 10), so `tmux list-sessions` returned a partial

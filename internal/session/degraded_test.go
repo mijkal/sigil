@@ -1,8 +1,11 @@
 package session
 
 import (
+	"fmt"
 	"sync"
 	"testing"
+
+	sigil "sigil.dev/sigil/pkg/sigil"
 )
 
 func newDegradedTestManager() *Manager {
@@ -136,5 +139,117 @@ func TestDegraded_HostsAreIndependent(t *testing.T) {
 	m.discoveryLooksDegraded("a", 30, 30)
 	if degraded, _ := m.discoveryLooksDegraded("b", 1, 1); degraded {
 		t.Fatal("one host's peak must not affect another")
+	}
+}
+
+// --- ephemerals must not move the guard's reference ------------------------
+//
+// The 2026-08-03 latch: Drydock's `hostsh-*` sessions are created in bursts and
+// exit within seconds, so the population genuinely collapses between two polls.
+// Counting them made every burst look like SSH exhaustion, and because
+// `decayPeak` only runs on the believed branch — which a shrunken host can never
+// reach — the guard latched permanently. utopia sat at peak_seen=42 against a
+// true count of 3 and stopped pruning entirely: 223 orphan rows, unreclaimable.
+
+func ephemeralTestManager() *Manager {
+	m := newDegradedTestManager()
+	m.ephemeral = newEphemeralMatcher([]string{"hostsh-*", "mctask-*", "mcclean-*"})
+	return m
+}
+
+// mkLive builds a discovery result: `work` real sessions + `eph` ephemeral ones.
+func mkLive(work, eph int) map[string]sigil.Session {
+	out := map[string]sigil.Session{}
+	for i := 0; i < work; i++ {
+		n := fmt.Sprintf("project-%d", i)
+		out[n] = sigil.Session{Name: n}
+	}
+	for i := 0; i < eph; i++ {
+		n := fmt.Sprintf("hostsh-%08x", i)
+		out[n] = sigil.Session{Name: n}
+	}
+	return out
+}
+
+// mkRows builds the DB-row equivalent.
+func mkRows(work, eph int) []sigil.Session {
+	var out []sigil.Session
+	for i := 0; i < work; i++ {
+		out = append(out, sigil.Session{Name: fmt.Sprintf("project-%d", i)})
+	}
+	for i := 0; i < eph; i++ {
+		out = append(out, sigil.Session{Name: fmt.Sprintf("hostsh-%08x", i)})
+	}
+	return out
+}
+
+func TestDegraded_EphemeralsAreNotCounted(t *testing.T) {
+	m := ephemeralTestManager()
+	if got := m.countWorkLive(mkLive(3, 39)); got != 3 {
+		t.Fatalf("countWorkLive = %d, want 3 (ephemerals must not count)", got)
+	}
+	if got := m.countWorkRows(mkRows(3, 220)); got != 3 {
+		t.Fatalf("countWorkRows = %d, want 3 (ephemerals must not count)", got)
+	}
+}
+
+func TestDegraded_EphemeralCollapseIsNotACliff(t *testing.T) {
+	m := ephemeralTestManager()
+	// Burst: the guard only ever sees the 3 work sessions, so the peak stays 3.
+	if degraded, _ := m.discoveryLooksDegraded("h",
+		m.countWorkLive(mkLive(3, 39)), m.countWorkRows(mkRows(3, 220))); degraded {
+		t.Fatal("a burst of ephemerals must not register as a cliff")
+	}
+	// Every ephemeral exits. Work sessions are untouched, so this must stay
+	// BELIEVED — that is the only path on which the miss-threshold can reclaim
+	// the 220 orphaned ephemeral rows.
+	degraded, peak := m.discoveryLooksDegraded("h",
+		m.countWorkLive(mkLive(3, 0)), m.countWorkRows(mkRows(3, 220)))
+	if degraded {
+		t.Fatalf("ephemerals vanishing must not suppress pruning (peak=%d)", peak)
+	}
+}
+
+// The defect itself, pinned: passing RAW counts (what the call site used to do)
+// latches the guard, and it never recovers because decayPeak is unreachable from
+// the degraded branch. If someone reverts to raw counts, this fails.
+func TestDegraded_RawCountsLatchForeverOnAnEphemeralBurst(t *testing.T) {
+	m := ephemeralTestManager()
+	live, rows := mkLive(3, 39), mkRows(3, 220)
+
+	// Old shape: every live session counts, so the burst sets peak=42.
+	if degraded, _ := m.discoveryLooksDegraded("h", len(live), len(rows)); degraded {
+		t.Fatal("precondition: the burst itself should look fine")
+	}
+	// The ephemerals exit. Truth is 3 live, 223 rows.
+	after := mkLive(3, 0)
+	for i := 0; i < 5; i++ {
+		degraded, peak := m.discoveryLooksDegraded("h", len(after), len(rows))
+		if !degraded {
+			t.Fatalf("cycle %d unexpectedly believed — the latch is what we are pinning", i)
+		}
+		if peak != 42 {
+			t.Fatalf("cycle %d: peak drifted to %d; the latch holds it at 42", i, peak)
+		}
+	}
+
+	// Same reality on a host that never had a raw-counted burst: believed, so
+	// pruning proceeds. NOTE the peak is in-memory and per-host, so the fix
+	// prevents future latching rather than retroactively clearing one already
+	// stuck — an already-latched host clears on the next sigild restart.
+	if degraded, _ := m.discoveryLooksDegraded("fresh",
+		m.countWorkLive(after), m.countWorkRows(rows)); degraded {
+		t.Fatal("work-only counting must not latch")
+	}
+}
+
+func TestDegraded_RealSSHExhaustionIsStillCaught(t *testing.T) {
+	// The counterpart: the guard must still do its original job. WORK sessions
+	// collapsing is the 2026-07-29 signal and must be disbelieved.
+	m := ephemeralTestManager()
+	m.discoveryLooksDegraded("h", m.countWorkLive(mkLive(30, 12)), 30)
+	if degraded, _ := m.discoveryLooksDegraded("h",
+		m.countWorkLive(mkLive(1, 12)), 30); !degraded {
+		t.Fatal("a collapse of WORK sessions must still be treated as a failed enumeration")
 	}
 }
