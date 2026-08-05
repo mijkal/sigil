@@ -910,8 +910,56 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 			Str("host", hostName).
 			Int("existing", len(existing)).
 			Msg("auto-resurrect still in flight — skipping prune this cycle")
+	} else if live, rows := m.countWorkLive(sessions), m.countWorkRows(existing); tmuxUp && live == 0 && rows > 0 {
+		// EMPTY-SERVER RECONCILE. tmux is up and answering, yet reports zero
+		// work sessions while we hold rows for this host. That is a tmux server
+		// with nothing in it — the state a host lands in after a reboot when
+		// something else starts tmux for us (macOS LaunchDaemon, systemd unit).
+		//
+		// Auto-resurrect above is edge-triggered on down→up, and that edge never
+		// happens here: while the host is rebooting, discovery fails outright
+		// rather than reporting "down", so hostTmuxUp keeps its last value of
+		// true; by the time SSH answers again the supervisor has already started
+		// tmux. prevUp==true → justUp==false → nothing fires. Meanwhile the
+		// degraded-discovery guard below reads seen=0 against a stale peak,
+		// calls it implausible, and suppresses pruning forever. The rows survive
+		// and nothing ever restores them: sigild idles in that state
+		// indefinitely (observed 2026-08-04 on jupiter, 75 minutes, zero
+		// resurrect attempts).
+		//
+		// Restore must therefore be RECONCILING, not edge-triggered: compare
+		// desired (rows) against observed (live) every cycle and repair the gap,
+		// regardless of how the host got here.
+		//
+		// Deliberately narrow: this fires only when live == 0. A user who kills
+		// ONE session still leaves others live, so that path falls through to
+		// the miss-threshold prune below and legitimate destruction is not
+		// fought — the long-standing invariant. Throttled by the same interval
+		// as the down-state retry so a host whose sessions cannot start (bad
+		// start_dir) is not SSH-stormed.
+		m.tmuxStMu.Lock()
+		last := m.lastResurrectAt[hostName]
+		due := time.Since(last) >= downResurrectInterval
+		if due {
+			m.lastResurrectAt[hostName] = time.Now()
+		}
+		m.tmuxStMu.Unlock()
+		if due && m.tryResurrectBegin(hostName) {
+			m.log.Warn().
+				Str("host", hostName).
+				Int("rows", rows).
+				Msg("tmux up but empty while rows exist — reconciling (host likely rebooted under a tmux supervisor)")
+			go m.autoResurrectHost(hostName)
+		}
+		// Hold miss counters: the rows are about to be recreated, and counting
+		// them as missing now is exactly the prune-vs-resurrect race.
+		m.missMu.Lock()
+		for _, s := range existing {
+			delete(m.missCounts, s.ID)
+		}
+		m.missMu.Unlock()
 	} else if degraded, peak := m.discoveryLooksDegraded(
-		hostName, m.countWorkLive(sessions), m.countWorkRows(existing)); degraded {
+		hostName, live, rows); degraded {
 		// Discovery RAN but came back implausibly thin. This is the 2026-07-29
 		// failure: a client retry loop had exhausted the host's SSH channels
 		// (MaxSessions defaults to 10), so `tmux list-sessions` returned a partial
