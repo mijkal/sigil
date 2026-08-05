@@ -93,18 +93,27 @@ func TestDegraded_PeakDecaysSoTheGuardCannotLatch(t *testing.T) {
 	m := newDegradedTestManager()
 	// A host inflated to 50 by an ephemeral flood.
 	m.discoveryLooksDegraded("h", 50, 50)
-	// The flood is cleaned up; the host legitimately holds 7 now. Without decay
-	// the guard would suppress pruning on this host forever, because 7 is below
-	// 34% of 50.
-	if degraded, _ := m.discoveryLooksDegraded("h", 7, 7); !degraded {
-		t.Fatal("expected the first post-cleanup reading to look degraded")
-	}
-	// Believed cycles pull the peak down; within a handful the host is trusted.
-	for i := 0; i < 12; i++ {
-		m.decayPeak("h", 7)
-	}
+	// The flood is cleaned up; the host legitimately holds 7 now.
+	//
+	// This used to be suspected on the first reading (7 is below 34% of 50) and
+	// only became trusted after a dozen decayPeak calls. But decayPeak runs ONLY
+	// on the believed branch, so a host stuck below the floor could never reach
+	// the code that would rescue it — the latch this test is named for. utopia
+	// sat that way at peak=13 against 4–5 real sessions, warning every 5 seconds
+	// indefinitely (2026-08-04).
+	//
+	// The reference is now clamped to what there is to protect, so convergence is
+	// immediate and needs no decay ramp: with 7 rows, a peak of 50 protects
+	// nothing that exists.
 	if degraded, peak := m.discoveryLooksDegraded("h", 7, 7); degraded {
-		t.Fatalf("guard latched: still degraded at seen=7 peak=%d", peak)
+		t.Fatalf("guard latched: 7 live against 7 rows must be believed at once, peak=%d", peak)
+	}
+	if peak := m.peakSeen["h"]; peak != 7 {
+		t.Fatalf("peak = %d, want it clamped to the 7 rows on hand", peak)
+	}
+	// And it must stay converged rather than ratchet back up.
+	if degraded, _ := m.discoveryLooksDegraded("h", 7, 7); degraded {
+		t.Fatal("guard re-latched on a steady host")
 	}
 }
 

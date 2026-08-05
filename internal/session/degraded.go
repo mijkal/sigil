@@ -97,6 +97,39 @@ func (m *Manager) discoveryLooksDegraded(hostName string, seen, existing int) (b
 	if existing == 0 {
 		return false, peak
 	}
+
+	// CLAMP THE REFERENCE TO WHAT THERE IS TO PROTECT.
+	//
+	// decayPeak is the only thing that lowers the peak, and it runs solely on
+	// the believed branch — a branch a latched host cannot reach. So the peak is
+	// a one-way ratchet the moment this guard starts firing: it suppresses
+	// pruning, suppression keeps the reading thin, the thin reading keeps the
+	// guard firing. Measuring over work sessions (2026-07-31) shrank the number
+	// but left the deadlock intact — utopia sat at peak=13 against 4–5 real
+	// sessions, straddling the 34% floor and warning every 5 seconds forever.
+	//
+	// The guard exists to stop rows being pruned. A peak above the number of
+	// rows we actually hold therefore protects nothing that exists — it can only
+	// manufacture false positives. Rows come from the DB, which SSH exhaustion
+	// cannot distort, so they are the honest ceiling for the reference.
+	//
+	// This does NOT weaken the incident case it was built for: on 2026-07-29
+	// there were 30 rows and 30 sessions at peak, so the clamp is a no-op and a
+	// collapse to seen=1 is still caught. Protection only narrows as rows
+	// genuinely disappear — and while the guard is firing, rows cannot be pruned
+	// at all, so a real outage holds its reference for as long as it lasts.
+	// Never clamp below what this very cycle enumerated: rows lag live sessions
+	// (a freshly created session is seen before it is upserted), and a discovery
+	// that just counted N sessions is direct evidence the host holds N.
+	if ceiling := existing; peak > ceiling {
+		if seen > ceiling {
+			ceiling = seen
+		}
+		if peak > ceiling {
+			peak = ceiling
+			m.peakSeen[hostName] = peak
+		}
+	}
 	// Not enough history on this host for a cliff to be meaningful.
 	if peak < degradedMinPeak {
 		return false, peak
