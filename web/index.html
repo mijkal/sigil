@@ -15,7 +15,13 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="application-name" content="Sigil" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- "black", not "black-translucent". Translucent runs the web view UNDER the
+         status bar and makes every top-anchored element responsible for its own
+         safe-area inset — miss one and the header sits behind the iPad clock (seen
+         on Drydock, same setting). "black" makes iOS reserve the strip so content
+         starts below it; the shell is #0A0A0C, so the reserved bar is invisible.
+         viewport-fit=cover stays — left/right and bottom insets still matter. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Sigil" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
