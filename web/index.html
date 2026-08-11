@@ -19,6 +19,30 @@
     <meta name="apple-mobile-web-app-title" content="Sigil" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Launch images. Without these iOS shows a blank field on cold start of an
+         installed app. The media query must match the device EXACTLY — a near miss
+         is silently ignored and you are back to the blank field — so these are real
+         point sizes. device-width/height stay at the PORTRAIT values in both
+         orientations, which is how iOS evaluates them; only orientation differs.
+           iPhone 16 Pro          402x874pt @3x -> 1206x2622
+           iPad Pro 11" M4        834x1210pt @2x -> 1668x2420
+           iPad Pro 11" <=4th gen 834x1194pt @2x -> 1668x2388  (both shipped: they
+           differ by 32px, and the wrong one matches nothing at all) -->
+    <link rel="apple-touch-startup-image" href="/splash/iphone16pro-portrait.png"
+      media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone16pro-landscape.png"
+      media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipadpro11-m4-portrait.png"
+      media="(device-width: 834px) and (device-height: 1210px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipadpro11-m4-landscape.png"
+      media="(device-width: 834px) and (device-height: 1210px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipadpro11-portrait.png"
+      media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipadpro11-landscape.png"
+      media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <!-- Explicit 180x180: iOS uses apple-touch-icon for the home screen, not the
+         manifest icons, and renders any transparency in it as black. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <!-- Safari pinned tab needs a flat monochrome shape, not the plated app icon. -->
     <link rel="mask-icon" href="/mask-icon.svg" color="#4F46E5" />
     <title>Sigil</title>
