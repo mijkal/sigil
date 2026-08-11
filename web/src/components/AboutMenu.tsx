@@ -6,6 +6,7 @@ import type { CSSProperties } from 'react';
 import { useConnectionStore } from '../stores/connectionStore';
 import { SigilLogoBig } from './SigilLogo';
 import { Modal } from '../ui/Modal';
+import { forceUpdate, isStandalone } from '../lib/appUpdate';
 
 // Single source of truth for the project's public home. Referenced by the About
 // box and anywhere else that links "source" — change it here only.
@@ -38,6 +39,17 @@ export function AboutMenu({ onClose }: { onClose: () => void }) {
   }, [client]);
 
   const year = new Date().getFullYear();
+  const [updating, setUpdating] = useState(false);
+
+  // Installed to a home screen there is no address bar and no reload button, and
+  // iOS disables its own pull-to-refresh in standalone — so this control is the
+  // only way to get onto a new build from inside the app. Non-destructive: it
+  // clears an app cache, not any session or scrollback, so there is no confirm
+  // step between a stuck app and a working one.
+  const onForceUpdate = () => {
+    setUpdating(true);
+    void forceUpdate();
+  };
 
   return (
     <Modal open onClose={onClose} labelledBy="about-title" width={340} placement="center">
@@ -66,6 +78,22 @@ export function AboutMenu({ onClose }: { onClose: () => void }) {
             uptime={hub ? fmtUptime(hub.uptime_seconds) : undefined}
             loading={!hub}
           />
+        </div>
+
+        <div style={{ padding: '0 20px 14px' }}>
+          <button
+            style={st.update}
+            onClick={onForceUpdate}
+            disabled={updating}
+            title="Discard the cached app and reload on the current build. Sessions and scrollback are untouched."
+          >
+            {updating ? 'Updating…' : 'Force update'}
+          </button>
+          <div style={st.updateHint}>
+            {isStandalone()
+              ? 'Installed app — reloads on the current build.'
+              : 'Clears the cached app and reloads.'}
+          </div>
         </div>
 
         <div style={st.footer}>
@@ -185,5 +213,14 @@ const st: Record<string, CSSProperties> = {
     marginBottom: 7, fontSize: 11,
   },
   link: { color: 'var(--color-accent)', textDecoration: 'none' },
+  update: {
+    width: '100%', padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
+    background: 'var(--color-panel-alt)', border: '1px solid var(--color-border)',
+    color: 'var(--color-text)', fontSize: 12, fontWeight: 500,
+    fontFamily: 'inherit',
+  },
+  updateHint: {
+    marginTop: 5, textAlign: 'center', fontSize: 10, color: 'var(--color-muted)',
+  },
   dot: { opacity: 0.4 },
 };
