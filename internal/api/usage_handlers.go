@@ -23,7 +23,20 @@ import (
 // Providers:
 //   claude → ~/.claude/projects/**/*.jsonl   (Claude Code)
 //   codex  → ~/.codex/**/*.jsonl             (OpenAI Codex CLI)
-//   agy    → ~/.gemini/tmp/**/chats/*.json   (Antigravity / Gemini CLI)
+//   agy    → ~/.gemini/antigravity-cli/conversations/*.db  (Antigravity CLI)
+//
+// agy moved store: the old Gemini CLI wrote JSON chats to ~/.gemini/tmp/**/chats,
+// and this widget still scanned there long after agy switched to one SQLite DB per
+// conversation under ~/.gemini/antigravity-cli. On a live host the old path held a
+// single chat from 2025-11-19, so the preset rendered permanently empty.
+//
+// agy reports MESSAGES, NOT TOKENS, and that is deliberate. Its per-generation
+// token counts live only inside protobuf blobs in `gen_metadata` with no published
+// schema; a field-scan turns up plausible candidates that fail an internal
+// consistency check (the apparent per-step values do not cumsum to the apparent
+// running total), so any number derived from them would be a guess wearing the
+// authority of a metric. Generation timestamps ARE unambiguous, so the message
+// burndown is real and the token figures are reported as unavailable.
 //
 // NOTE: there is no scriptable `claude usage` command and the official Max
 // rate-limit percentages are fetched live by the CLI, not cached on disk — so this
@@ -34,7 +47,7 @@ import (
 var providerRoots = map[string]string{
 	"claude": "$HOME/.claude/projects",
 	"codex":  "$HOME/.codex",
-	"agy":    "$HOME/.gemini/tmp",
+	"agy":    "$HOME/.gemini/antigravity-cli/conversations",
 }
 
 type usageCacheEntry struct {
@@ -208,7 +221,7 @@ func (s *Server) Exec(w http.ResponseWriter, r *http.Request) {
 // on any trouble. Codex's official rate-limit telemetry and Claude's observed
 // quota errors are returned separately from locally counted token usage.
 const agentUsagePy = `
-import os, glob, time, datetime, sys, re, json
+import os, glob, time, datetime, sys, re, json, sqlite3
 root = os.path.expandvars(os.environ.get("SIGIL_ROOT",""))
 provider = os.environ.get("SIGIL_PROVIDER","claude")
 now = time.time(); H = 3600
@@ -263,6 +276,46 @@ def parse_reset(text, observed):
         return cand.timestamp()
     except Exception:
         return None
+def _pb_first(buf, path):
+    """First varint at the given field path in a protobuf message, or None.
+
+    A deliberately tiny reader: agy publishes no schema, so this walks the wire
+    format by field number only and never guesses at semantics. Used for exactly
+    one field — the generation timestamp.
+    """
+    def walk(b, want):
+        i = 0
+        while i < len(b):
+            key = 0; shift = 0
+            while True:
+                if i >= len(b): return None
+                c = b[i]; key |= (c & 0x7f) << shift; i += 1; shift += 7
+                if not c & 0x80: break
+            fn, wt = key >> 3, key & 7
+            if wt == 0:
+                v = 0; shift = 0
+                while True:
+                    if i >= len(b): return None
+                    c = b[i]; v |= (c & 0x7f) << shift; i += 1; shift += 7
+                    if not c & 0x80: break
+                if fn == want[0] and len(want) == 1: return v
+            elif wt == 2:
+                ln = 0; shift = 0
+                while True:
+                    if i >= len(b): return None
+                    c = b[i]; ln |= (c & 0x7f) << shift; i += 1; shift += 7
+                    if not c & 0x80: break
+                sub = b[i:i+ln]; i += ln
+                if fn == want[0] and len(want) > 1:
+                    got = walk(sub, want[1:])
+                    if got is not None: return got
+            elif wt == 5: i += 4
+            elif wt == 1: i += 8
+            else: return None
+        return None
+    try: return walk(buf, path)
+    except Exception: return None
+
 re_ts  = re.compile(r'"timestamp":"([^"]+)"')
 re_ts2 = re.compile(r'"(?:ts|created_at)":"?([^",}]+)"?')
 re_model = re.compile(r'"model":"([^"]+)"')
@@ -273,7 +326,7 @@ re_cc  = re.compile(r'"cache_creation_input_tokens":\s*(\d+)')
 re_cd  = re.compile(r'"cached_tokens":\s*(\d+)')
 scanned = 0; files = []
 try:
-    pattern = "/**/chats/*.json" if provider == "agy" else "/**/*.jsonl"
+    pattern = "/*.db" if provider == "agy" else "/**/*.jsonl"
     files = [f for f in glob.glob(root+pattern, recursive=True) if os.path.getmtime(f) >= cutoff]
 except Exception:
     files = []
@@ -290,22 +343,31 @@ def add(t, model, it, ot, ca=0):
     if t >= now-7*86400: put(wk)
     if t >= now-24*H:
         idx = int((t-(now-24*H))//H)
-        if 0 <= idx < 24: hourly[idx] += it + ot
+        # agy reports no tokens, so its sparkline counts MESSAGES — a token
+        # histogram would render as a flat line and read as "nothing happened".
+        if 0 <= idx < 24: hourly[idx] += 1 if provider == "agy" else it + ot
 for fp in files:
     if provider == "agy":
+        # One SQLite DB per conversation. Each gen_metadata row is one model
+        # generation, and its protobuf blob carries a unix-seconds timestamp at
+        # field path 1.9.4.1 — the one field in there that is unambiguous (it
+        # tracks the file mtime and the row count matches the generation count).
+        # Tokens are NOT read: see the note at the top of this file.
         try:
-            doc = json.load(open(fp, errors="ignore"))
-            for msg in doc.get("messages", []):
-                tok = msg.get("tokens") or {}
-                if msg.get("type") != "gemini" or not tok: continue
-                raw = msg.get("timestamp") or doc.get("lastUpdated") or doc.get("startTime")
-                try: t = datetime.datetime.fromisoformat(str(raw).replace("Z","+00:00")).timestamp()
-                except Exception: continue
-                if t < cutoff: continue
-                add(t, msg.get("model") or "gemini", int(tok.get("input") or 0),
-                    int(tok.get("output") or 0) + int(tok.get("thoughts") or 0),
-                    int(tok.get("cached") or 0))
-        except Exception: pass
+            conn = sqlite3.connect("file:%s?mode=ro" % fp, uri=True, timeout=2.0)
+        except Exception:
+            continue
+        try:
+            for (blob,) in conn.execute("select data from gen_metadata"):
+                ts = _pb_first(bytes(blob or b""), (1, 9, 4, 1))
+                if ts is None or not (1600000000 <= ts <= 1900000000): continue
+                if ts < cutoff: continue
+                add(ts, "agy", 0, 0, 0)
+        except Exception:
+            pass
+        finally:
+            try: conn.close()
+            except Exception: pass
         continue
     try: fh = open(fp, errors="ignore")
     except Exception: continue

@@ -122,19 +122,48 @@ func TestAgentUsageClaudeExpiresAWindowThatAlreadyReset(t *testing.T) {
 	}
 }
 
-func TestAgentUsageAgyChatTokens(t *testing.T) {
+func TestAgentUsageAgyCountsGenerationsFromConversationDBs(t *testing.T) {
+	// agy stores one SQLite DB per conversation under
+	// ~/.gemini/antigravity-cli/conversations, with one gen_metadata row per model
+	// generation. It replaced the old Gemini CLI's ~/.gemini/tmp/**/chats/*.json
+	// layout, and this collector kept scanning the dead path — on a live host that
+	// held a single chat from 2025-11-19, so the widget rendered permanently empty.
+	//
+	// The fixture is built with python3 rather than a Go sqlite driver: the probe
+	// already requires python3, so this adds no dependency to build a database
+	// whose only consumer is a python script.
 	root := t.TempDir()
-	p := filepath.Join(root, "project", "chats", "session.json")
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
+	fixture := `
+import sqlite3, sys, time
+def varint(v):
+    out = bytearray()
+    while v >= 0x80:
+        out.append((v & 0x7f) | 0x80); v >>= 7
+    out.append(v); return bytes(out)
+ts = int(time.time()) - 1800
+inner = b"\x08" + varint(ts)                      # field 1, varint  -> the timestamp
+f4 = b"\x22" + varint(len(inner)) + inner          # field 4, nested
+f9 = b"\x4a" + varint(len(f4)) + f4                # field 9, nested
+f1 = b"\x0a" + varint(len(f9)) + f9                # field 1, nested  -> path 1.9.4.1
+c = sqlite3.connect(sys.argv[1] + "/conv.db")
+c.execute("create table gen_metadata (idx integer primary key, data blob, size integer)")
+for i in range(3):
+    c.execute("insert into gen_metadata values (?,?,?)", (i, f1, len(f1)))
+c.commit()
+`
+	cmd := exec.Command("python3", "-c", fixture, root)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("could not build sqlite fixture: %v: %s", err, out)
 	}
-	doc := `{"messages":[{"type":"gemini","timestamp":"2099-08-02T05:00:00Z","model":"gemini-test","tokens":{"input":100,"output":20,"thoughts":5,"cached":40}}]}`
-	if err := os.WriteFile(p, []byte(doc), 0o644); err != nil {
-		t.Fatal(err)
-	}
+
 	got := runUsageProbe(t, "agy", root)
 	b := got["last5h"].(map[string]any)
-	if b["in"] != float64(100) || b["out"] != float64(25) {
-		t.Fatalf("bucket = %#v", b)
+	if b["msgs"] != float64(3) {
+		t.Fatalf("expected 3 generations in the 5h bucket, got %#v", b)
+	}
+	// Tokens stay zero on purpose: agy's per-generation counts live only in
+	// unschema'd protobuf, and a guessed number would be worse than none.
+	if b["in"] != float64(0) || b["out"] != float64(0) {
+		t.Fatalf("agy must not report tokens, got %#v", b)
 	}
 }

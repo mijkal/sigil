@@ -6,6 +6,14 @@ import { Bar, Sparkline, Freshness } from './WidgetBits';
 
 const work = (b: UsageBucket) => b.in + b.out;
 
+/** Some providers expose activity but not token counts — agy keeps its per-generation
+ *  usage in unschema'd protobuf, so the collector reports messages and leaves tokens
+ *  at zero rather than guessing. Without this the headline renders a confident "0"
+ *  and the widget reads as broken instead of as "this provider does not publish
+ *  tokens". */
+const tokenless = (d: { last5h: UsageBucket; today: UsageBucket; week: UsageBucket }) =>
+  work(d.last5h) + work(d.today) + work(d.week) === 0 && d.week.msgs > 0;
+
 function topModels(b: UsageBucket, n = 3): Array<[string, number]> {
   return Object.entries(b.models || {})
     .filter(([m, v]) => m && m !== '?' && v > 0)
@@ -86,6 +94,7 @@ export function UsageWidget({ cfg }: { cfg: WidgetConfig }) {
   // 5h bar: fraction of the soft target if set, else 5h vs today's total (recent
   // intensity) — a meaningful shape even without an absolute Max limit.
   const w5 = b5 ? work(b5) : 0;
+  const noTokens = data ? tokenless(data) : false;
   const frac = cfg.softTarget && cfg.softTarget > 0
     ? w5 / cfg.softTarget
     : (today && work(today) > 0 ? w5 / work(today) : 0);
@@ -133,12 +142,18 @@ export function UsageWidget({ cfg }: { cfg: WidgetConfig }) {
           <Bar
             label="5h"
             labelWidth="5ch"
-            frac={frac}
-            value={fmtTokens(w5)}
-            danger={overTarget}
+            frac={noTokens ? Math.min(1, b5.msgs / Math.max(1, wk.msgs / 7)) : frac}
+            value={noTokens ? `${b5.msgs} msg` : fmtTokens(w5)}
+            danger={!noTokens && overTarget}
           />
           <div style={{ display: 'flex', gap: 10, fontSize: 10.5, fontFamily: 'var(--font-mono)', color: 'var(--color-muted)' }}>
-            <span>5h <span style={{ color: 'var(--color-text)' }}>{b5.msgs}</span> msg{cfg.softTarget ? ` · ${Math.round(frac * 100)}% of ${fmtTokens(cfg.softTarget)}` : ''}</span>
+            {noTokens ? (
+              <span title="This provider does not publish per-generation token counts, so the burndown is measured in messages.">
+                messages only · <span style={{ color: 'var(--color-text)' }}>{today.msgs}</span> today
+              </span>
+            ) : (
+              <span>5h <span style={{ color: 'var(--color-text)' }}>{b5.msgs}</span> msg{cfg.softTarget ? ` · ${Math.round(frac * 100)}% of ${fmtTokens(cfg.softTarget)}` : ''}</span>
+            )}
           </div>
           {quotaPct === null && nearTarget && (
             <div style={{ fontSize: 9.5, color: 'var(--color-warning)', fontFamily: 'var(--font-mono)' }}>
