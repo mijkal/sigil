@@ -28,24 +28,90 @@
     <!-- Launch images. Without these iOS shows a blank field on cold start of an
          installed app. The media query must match the device EXACTLY — a near miss
          is silently ignored and you are back to the blank field — so these are real
-         point sizes. device-width/height stay at the PORTRAIT values in both
-         orientations, which is how iOS evaluates them; only orientation differs.
-           iPhone 16 Pro          402x874pt @3x -> 1206x2622
-           iPad Pro 11" M4        834x1210pt @2x -> 1668x2420
-           iPad Pro 11" <=4th gen 834x1194pt @2x -> 1668x2388  (both shipped: they
-           differ by 32px, and the wrong one matches nothing at all) -->
-    <link rel="apple-touch-startup-image" href="/splash/iphone16pro-portrait.png"
+         CSS point sizes per device, portrait and landscape.
+
+         device-width/height stay at the PORTRAIT values in BOTH orientations; that
+         is how iOS evaluates them, and only `orientation` differentiates. Devices
+         sharing a viewport share an image, which is why the 12/13/14 line and the
+         15/16 line each appear once rather than per marketing name.
+
+         Regenerate with scripts/gen-splash.py after adding a device. -->
+    <link rel="apple-touch-startup-image" href="/splash/iphone-se-portrait.png"
+      media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-se-landscape.png"
+      media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-8plus-portrait.png"
+      media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-8plus-landscape.png"
+      media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-x-portrait.png"
+      media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-x-landscape.png"
+      media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-xr-portrait.png"
+      media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-xr-landscape.png"
+      media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-xsmax-portrait.png"
+      media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-xsmax-landscape.png"
+      media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-12-portrait.png"
+      media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-12-landscape.png"
+      media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-12promax-portrait.png"
+      media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-12promax-landscape.png"
+      media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-14pro-portrait.png"
+      media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-14pro-landscape.png"
+      media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-14promax-portrait.png"
+      media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-14promax-landscape.png"
+      media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-16pro-portrait.png"
       media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
-    <link rel="apple-touch-startup-image" href="/splash/iphone16pro-landscape.png"
+    <link rel="apple-touch-startup-image" href="/splash/iphone-16pro-landscape.png"
       media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
-    <link rel="apple-touch-startup-image" href="/splash/ipadpro11-m4-portrait.png"
-      media="(device-width: 834px) and (device-height: 1210px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
-    <link rel="apple-touch-startup-image" href="/splash/ipadpro11-m4-landscape.png"
-      media="(device-width: 834px) and (device-height: 1210px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
-    <link rel="apple-touch-startup-image" href="/splash/ipadpro11-portrait.png"
+    <link rel="apple-touch-startup-image" href="/splash/iphone-16promax-portrait.png"
+      media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/iphone-16promax-landscape.png"
+      media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-9-7-portrait.png"
+      media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-9-7-landscape.png"
+      media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-mini-portrait.png"
+      media="(device-width: 744px) and (device-height: 1133px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-mini-landscape.png"
+      media="(device-width: 744px) and (device-height: 1133px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-10-9-portrait.png"
+      media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-10-9-landscape.png"
+      media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-air-10-5-portrait.png"
+      media="(device-width: 834px) and (device-height: 1112px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-air-10-5-landscape.png"
+      media="(device-width: 834px) and (device-height: 1112px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-pro-11-portrait.png"
       media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
-    <link rel="apple-touch-startup-image" href="/splash/ipadpro11-landscape.png"
+    <link rel="apple-touch-startup-image" href="/splash/ipad-pro-11-landscape.png"
       media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-pro-11-m4-portrait.png"
+      media="(device-width: 834px) and (device-height: 1210px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-pro-11-m4-landscape.png"
+      media="(device-width: 834px) and (device-height: 1210px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-pro-12-9-portrait.png"
+      media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-pro-12-9-landscape.png"
+      media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-pro-13-m4-portrait.png"
+      media="(device-width: 1032px) and (device-height: 1376px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/splash/ipad-pro-13-m4-landscape.png"
+      media="(device-width: 1032px) and (device-height: 1376px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" />
     <!-- Explicit 180x180: iOS uses apple-touch-icon for the home screen, not the
          manifest icons, and renders any transparency in it as black. -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
