@@ -28,11 +28,9 @@ export function WidgetsSection() {
   const move = useWidgetStore(s => s.move);
 
   const firstConnected = hosts.find(h => h.status === 'connected')?.name ?? hosts[0]?.name ?? '';
-  // The hub host (the box sigild runs on) is the best default for usage widgets:
-  // same account, local scan, low latency. The hub is its own "self" host, whose
-  // address is loopback (127.0.0.1) — that's the reliable signal (the browser may
-  // reach sigild by a LAN IP or domain that matches no host's address). Fall back to
-  // a server-URL address match, then the first connected host.
+  // The hub is its own "self" host, whose address is loopback (127.0.0.1) — that's
+  // the reliable signal for identifying it (the browser may reach sigild by a LAN
+  // IP or domain that matches no host's address). Fall back to a server-URL match.
   const LOCAL = new Set(['127.0.0.1', 'localhost', '::1', '0.0.0.0']);
   const hubName =
     hosts.find(h => LOCAL.has(h.hostname) && h.status === 'connected')?.name
@@ -43,7 +41,27 @@ export function WidgetsSection() {
       } catch { return undefined; }
     })()
     || '';
-  const usageHost = hubName || firstConnected;
+
+  // Usage widgets must default to a host that actually RUNS a coding agent, not
+  // to the hub.
+  //
+  // The old default was the hub, on the reasoning that it shares the account and
+  // scans locally. That silently held only while the hub and the agent host were
+  // the same box. Move sigild to a machine that runs no agent sessions and every
+  // usage widget reads a home directory with no transcripts in it: 0 files, 0
+  // tokens, no error — a widget confidently reporting nothing.
+  //
+  // Transcripts are the source (~/.claude/projects, ~/.codex,
+  // ~/.gemini/antigravity-cli), so the host that produced them is the only host
+  // that can answer. Prefer one tagged `agent`, and among those prefer a LAN-local
+  // one — that keeps the original low-latency intent, since the scan is a several-
+  // thousand-file walk done over the SSH pool.
+  const agentHosts = hosts.filter(h => h.status === 'connected' && h.tags?.includes('agent'));
+  const usageHost =
+    agentHosts.find(h => h.tags?.includes('local') || h.tags?.includes('lan'))?.name
+    || agentHosts[0]?.name
+    || hubName
+    || firstConnected;
 
   const addPreset = (kind: WidgetKind) => {
     if (kind === 'command') {

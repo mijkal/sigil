@@ -39,10 +39,48 @@ function persist(widgets: WidgetConfig[]) {
 let seq = 0;
 function makeId() { return `w_${Date.now().toString(36)}_${++seq}`; }
 
+// One-time repair for usage widgets stranded by the hub moving hosts.
+//
+// A usage widget stores the host whose transcripts it reads. Widgets created
+// while sigild ran on the same box as the coding agents were pinned to that box
+// by name — and when the hub moves to a machine that runs no agent sessions, the
+// pin survives in localStorage and every widget quietly reports 0 files / 0
+// tokens. There is no error to see: the scan succeeds, the directory is simply
+// empty.
+//
+// So re-point, but only in exactly that broken shape: the widget is a usage
+// widget, its current host is NOT tagged `agent`, and some connected host IS.
+// A widget already aimed at an agent host is never touched, and neither is a
+// setup whose hub genuinely is the agent host (there, no other candidate wins).
+// Fully reversible — the host dropdown in Settings → Widgets still governs.
+export function repointStaleUsageHosts(
+  widgets: WidgetConfig[],
+  hosts: Array<{ name: string; status?: string; tags?: string[] }>,
+): { widgets: WidgetConfig[]; changed: Array<{ name: string; from: string; to: string }> } {
+  const agents = hosts.filter(h => h.status === 'connected' && h.tags?.includes('agent'));
+  const target =
+    agents.find(h => h.tags?.includes('local') || h.tags?.includes('lan'))?.name
+    || agents[0]?.name;
+  const changed: Array<{ name: string; from: string; to: string }> = [];
+  if (!target) return { widgets, changed };
+
+  const isAgent = (name: string) => agents.some(h => h.name === name);
+  const next = widgets.map(w => {
+    if (w.kind === 'command' || !w.host || isAgent(w.host)) return w;
+    // Only re-point a host we can actually see and judge; an unknown name may be
+    // a host this client simply has not loaded.
+    if (!hosts.some(h => h.name === w.host)) return w;
+    changed.push({ name: w.name, from: w.host, to: target });
+    return { ...w, host: target };
+  });
+  return { widgets: changed.length ? next : widgets, changed };
+}
+
 interface WidgetStore {
   widgets: WidgetConfig[];
   collapsed: boolean;
   manageRequested: boolean;   // set when the dock asks Settings to open on Widgets
+  repointStale: (hosts: Array<{ name: string; status?: string; tags?: string[] }>) => Array<{ name: string; from: string; to: string }>;
   add: (w: Omit<WidgetConfig, 'id'>) => string;
   remove: (id: string) => void;
   update: (id: string, patch: Partial<Omit<WidgetConfig, 'id'>>) => void;
@@ -56,6 +94,15 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
   widgets: load(),
   collapsed: (() => { try { return localStorage.getItem(LS_COLLAPSED) === '1'; } catch { return false; } })(),
   manageRequested: false,
+
+  repointStale: (hosts) => {
+    const { widgets, changed } = repointStaleUsageHosts(get().widgets, hosts);
+    if (changed.length) {
+      persist(widgets);
+      set({ widgets });
+    }
+    return changed;
+  },
 
   add: (w) => {
     const id = makeId();

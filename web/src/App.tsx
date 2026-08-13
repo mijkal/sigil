@@ -16,6 +16,7 @@ import { playTone } from './lib/audio';
 import { useConnectionStore } from './stores/connectionStore';
 import { useSessionColorStore } from './stores/sessionColorStore';
 import { useSessionStore } from './stores/sessionStore';
+import { useWidgetStore } from './stores/widgetStore';
 import { useLayoutStore } from './stores/layoutStore';
 import { useToastStore } from './stores/toastStore';
 import { useWorkspaceStore, setWorkspaceApiCreds, autoWorkspaceId } from './stores/workspaceStore';
@@ -51,6 +52,7 @@ export function App() {
 
   const { init, client, token, connected, authError } = useConnectionStore();
   const { setHosts, setSessions, setHostMetrics, setAllMetrics } = useSessionStore();
+  const hostList = useSessionStore(s => s.hosts);
   const [showPalette, setShowPalette] = useState(false);
   const [showSetup, setShowSetup] = useState(!token);
   const [showSettings, setShowSettings] = useState(false);
@@ -315,6 +317,24 @@ export function App() {
   useEffect(() => {
     if (connected) setShowSetup(false);
   }, [connected]);
+
+  // Repair usage widgets left pinned to a host that runs no coding agent — what
+  // happens to every existing widget when the hub moves boxes. Runs once per
+  // session, after the host list (with its tags) has actually loaded.
+  const repointed = useRef(false);
+  useEffect(() => {
+    if (repointed.current || !connected || hostList.length === 0) return;
+    repointed.current = true;
+    const changed = useWidgetStore.getState().repointStale(hostList);
+    if (changed.length) {
+      push({
+        type: 'info',
+        title: 'Usage widgets re-pointed',
+        message: `${changed.map(c => `${c.name}: ${c.from} → ${c.to}`).join(', ')} — ${changed[0].from} runs no coding agent, so it had no transcripts to read.`,
+        durationMs: 9000,
+      });
+    }
+  }, [connected, hostList, push]);
 
   // A stored token the hub refuses would otherwise drop you into the full UI
   // with an empty sidebar and no explanation — the app looked connected and
