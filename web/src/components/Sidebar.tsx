@@ -33,7 +33,17 @@ export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: ()
   const setSessions = useSessionStore(s => s.setSessions);
   const setHosts   = useSessionStore(s => s.setHosts);
   const addTile    = useLayoutStore(s => s.addTab);
-  const { connected, client, serverUrl } = useConnectionStore();
+  const { connected, client, serverUrl, authError } = useConnectionStore();
+
+  // Three states, not two. A refused token used to paint the same grey as an
+  // ordinary disconnect (and, before `connected` meant "authenticated", the same
+  // GREEN as a healthy link) — so the one failure a user can actually fix was
+  // the one the UI never mentioned.
+  const statusDot = authError
+    ? { color: 'var(--color-danger)', glow: '0 0 6px var(--color-danger)', title: `Token rejected — ${authError}` }
+    : connected
+      ? { color: 'var(--color-success)', glow: '0 0 6px var(--color-success)', title: 'Connected' }
+      : { color: 'var(--color-muted-dim)', glow: 'none', title: 'Disconnected' };
 
   const { theme, toggle: toggleTheme } = useTheme();
   const openPanel = useToastStore(s => s.openPanel);
@@ -219,9 +229,9 @@ export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: ()
             <SigilLogo size={26} />
           </button>
           <div style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-            background: connected ? 'var(--color-success)' : 'var(--color-muted-dim)',
-            boxShadow: connected ? '0 0 6px var(--color-success)' : 'none' }}
-            title={connected ? 'Connected' : 'Disconnected'} />
+            background: statusDot.color,
+            boxShadow: statusDot.glow }}
+            title={statusDot.title} />
         </div>
 
         {/* Middle: per-host status + session sigil glyphs */}
@@ -296,10 +306,10 @@ export function Sidebar({ onClose, onOpenSetup, onOpenSettings }: { onClose?: ()
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
             width: '7px', height: '7px', borderRadius: '50%',
-            background: connected ? 'var(--color-success)' : 'var(--color-muted-dim)',
-            boxShadow: connected ? '0 0 6px var(--color-success)' : 'none',
+            background: statusDot.color,
+            boxShadow: statusDot.glow,
             transition: 'all 0.3s', flexShrink: 0,
-          }} title={connected ? 'Connected' : 'Disconnected'} />
+          }} title={statusDot.title} />
           {!onClose && (
             <button
               onClick={toggleCollapsed}

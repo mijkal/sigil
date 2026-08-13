@@ -10,6 +10,9 @@ GO_FLAGS   := -ldflags="-s -w -X sigil.dev/sigil/pkg/sigil.Version=$(VERSION) -X
 UTOPIA     := $(or $(SIGIL_HOST),user@sigil-host)
 HOKULEA    := $(or $(SIGIL_MAC_HOST),user@mac-host)
 HOKULEA_PATH := /Volumes/Scratch/dev/sigil
+# Where the webapp lives on the serving host. Override when the hub's checkout
+# is not at /data/projects/sigil, e.g. SIGIL_WEB_PATH=/srv/sigil/web
+WEB_PATH   := $(or $(SIGIL_WEB_PATH),/data/projects/sigil/web)
 
 all: build
 
@@ -52,7 +55,7 @@ build-linux-arm64:
 deploy: build-web build-linux
 	@echo "→ Deploying to $(UTOPIA)..."
 	@# Push built webapp (not synced by Syncthing — dist/ is in .stignore)
-	rsync -az --delete web/dist/ $(UTOPIA):/data/projects/sigil/web/dist/
+	rsync -az --delete web/dist/ $(UTOPIA):$(WEB_PATH)/dist/
 	@# Push binaries to /usr/local/bin via sudo
 	rsync -az $(BUILD_DIR)/$(BINARY)-linux-amd64 $(UTOPIA):/tmp/sigild-new
 	rsync -az $(BUILD_DIR)/sigil-web-linux-amd64 $(UTOPIA):/tmp/sigil-web-new
@@ -67,8 +70,8 @@ deploy: build-web build-linux
 ## instead of `deploy` while WIP sessions are live.
 deploy-web: build-web
 	@echo "→ Deploying web/dist to $(UTOPIA) (no restart)..."
-	rsync -az --delete web/dist/ $(UTOPIA):/data/projects/sigil/web/dist.new/
-	ssh $(UTOPIA) "cd /data/projects/sigil/web && rm -rf dist.old && { [ -d dist ] && mv dist dist.old || true; } && mv dist.new dist"
+	rsync -az --delete web/dist/ $(UTOPIA):$(WEB_PATH)/dist.new/
+	ssh $(UTOPIA) "cd $(WEB_PATH) && rm -rf dist.old && { [ -d dist ] && mv dist dist.old || true; } && mv dist.new dist"
 	@echo "✓ web/dist swapped atomically — reload browser to pick up. sigild untouched."
 
 ## dev: Run sigild locally (API only, no web)

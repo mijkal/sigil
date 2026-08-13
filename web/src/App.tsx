@@ -49,7 +49,7 @@ export function App() {
 
   const layoutMode = useMobileLayout();
 
-  const { init, client, token } = useConnectionStore();
+  const { init, client, token, connected, authError } = useConnectionStore();
   const { setHosts, setSessions, setHostMetrics, setAllMetrics } = useSessionStore();
   const [showPalette, setShowPalette] = useState(false);
   const [showSetup, setShowSetup] = useState(!token);
@@ -299,19 +299,39 @@ export function App() {
   const handlePreviewPushConsumed = useCallback(() => setPreviewPush(null), []);
   const handlePreviewToggle = useCallback(() => setPreviewOpen(v => !v), []);
 
-  const handleSetupSave = (serverUrl: string, newToken: string) => {
+  const handleSetupSave = useCallback((serverUrl: string, newToken: string) => {
     // Record this server in the saved-instances list (and make it active) so it
     // shows up in Settings → Servers for quick switching later.
     useServerStore.getState().registerActive(serverUrl, newToken);
     init(serverUrl, newToken);
     setWorkspaceApiCreds(serverUrl, newToken);
-    setShowSetup(false);
-  };
+    // Deliberately NOT closing here. The modal stays up until the hub actually
+    // accepts the token (the effect below closes it on `connected`), so a refused
+    // token leaves the user on the form with the error instead of dropping them
+    // into an empty app that looks connected.
+  }, [init]);
+
+  // Close the setup modal only once auth has genuinely succeeded.
+  useEffect(() => {
+    if (connected) setShowSetup(false);
+  }, [connected]);
+
+  // A stored token the hub refuses would otherwise drop you into the full UI
+  // with an empty sidebar and no explanation — the app looked connected and
+  // there was no way to discover it had been rejected. Surface the login form
+  // with the reason. `authError` is set ONLY by an explicit auth.result failure,
+  // so a plain network drop never triggers this.
+  useEffect(() => {
+    if (authError) setShowSetup(true);
+  }, [authError]);
 
   const openSetup = useCallback(() => setShowSetup(true), []);
   const openPreview = useCallback(() => setPreviewOpen(true), []);
   // Allow dismissing the setup modal only if we already have credentials (i.e. re-edit flow).
-  const setupClose = token ? () => setShowSetup(false) : undefined;
+  // Memoised: an inline arrow here changes identity on every render, and Modal
+  // used to re-run its focus effect on that, stealing focus while typing.
+  const closeSetup = useCallback(() => setShowSetup(false), []);
+  const setupClose = token ? closeSetup : undefined;
 
   // Mobile layouts get their own structure; desktop uses the mosaic split layout
   if (layoutMode !== 'desktop') {

@@ -15,6 +15,8 @@ export class SigilClient {
   private handlers: Map<string, Array<MessageHandler>> = new Map();
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  /** Latched when the hub answers auth.result with success:false. */
+  private authRejected = false;
   private connected = false;
   private destroyed = false;
   // Binary hot-path: channel.output/channel.input as raw binary WS frames (no
@@ -497,6 +499,14 @@ export class SigilClient {
   }
 
   private handleMessage(msg: WsMessage): void {
+    // A refused token is a verdict, not a network hiccup: reconnecting on a
+    // 3s timer re-asks the same question forever, and every cycle re-rendered
+    // the app (which is how it stole focus from the login field). Latch it and
+    // stop; a new token means a new client, which clears the latch.
+    if (msg.type === 'auth.result') {
+      const p = msg.payload as { success?: boolean } | undefined;
+      this.authRejected = p?.success === false;
+    }
     // Notify type-specific handlers
     this._notifyHandlers(msg.type, msg.payload, msg.channel_id);
     // Notify wildcard handlers
@@ -533,6 +543,10 @@ export class SigilClient {
 
   private scheduleReconnect(): void {
     if (this.destroyed) return;
+    if (this.authRejected) {
+      console.warn('[SigilClient] Not reconnecting: the hub rejected this token.');
+      return;
+    }
     if (this.reconnectTimeout) return;
     console.log('[SigilClient] Scheduling reconnect in 3s...');
     this.reconnectTimeout = setTimeout(() => {

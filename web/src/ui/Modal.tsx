@@ -29,6 +29,17 @@ export function Modal({
   const cardRef = useRef<HTMLDivElement>(null);
   const prevFocus = useRef<HTMLElement | null>(null);
 
+  // onClose is held in a ref so the focus effect below can depend on `open`
+  // ALONE. It used to list `onClose` as a dependency, and callers routinely pass
+  // an inline arrow — a fresh identity on every parent render. Any re-render of
+  // the parent (a WebSocket reconnect flipping connection state, say) therefore
+  // tore down and re-ran the effect: cleanup restored focus to whatever opened
+  // the modal, then setup re-focused the first focusable element. Mid-typing,
+  // focus was yanked out of the field several times a second — which reads as
+  // "the input is fighting me" and is unusable on a phone keyboard.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
     prevFocus.current = document.activeElement as HTMLElement | null;
@@ -40,7 +51,7 @@ export function Modal({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab' || !card) return;
@@ -68,7 +79,7 @@ export function Modal({
       // Restore focus to whatever opened the modal.
       prevFocus.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { BrandMark } from './BrandMark';
+import { useConnectionStore } from '../stores/connectionStore';
 
 interface SetupModalProps {
   onSave: (serverUrl: string, token: string) => void;
@@ -13,6 +14,13 @@ export function SetupModal({ onSave, onClose }: SetupModalProps) {
     localStorage.getItem('sigil_server_url') || `${window.location.protocol}//${window.location.host}`
   );
   const [token, setToken] = useState(localStorage.getItem('sigil_token') || '');
+  const authError = useConnectionStore((s) => s.authError);
+  const connecting = useConnectionStore((s) => s.connecting);
+
+  // Shown for a rejection from pressing Connect AND for one that happened at
+  // start-up with a stored token — the latter is the case that stranded a phone
+  // in an app that looked connected but had been refused.
+  const showError = !connecting && !!authError;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,6 +31,7 @@ export function SetupModal({ onSave, onClose }: SetupModalProps) {
 
   return (
     <Modal open onClose={onClose ?? (() => {})} labelledBy="setup-title" width={380} placement="center">
+      <div style={styles.body}>
         {onClose && (
           <button
             type="button"
@@ -39,66 +48,88 @@ export function SetupModal({ onSave, onClose }: SetupModalProps) {
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.field}>
-            <label style={styles.label}>Hub URL</label>
+            <label style={styles.label} htmlFor="setup-url">Hub URL</label>
             <input
-              type="text"
+              id="setup-url"
+              type="url"
+              inputMode="url"
               value={serverUrl}
               onChange={(e) => setServerUrl(e.target.value)}
               placeholder="http://sigil-host.local:7777"
               style={styles.input}
-              autoFocus
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
             />
           </div>
 
           <div style={styles.field}>
-            <label style={styles.label}>Auth Token</label>
+            <label style={styles.label} htmlFor="setup-token">Auth Token</label>
             <input
+              id="setup-token"
               type="password"
               value={token}
               onChange={(e) => setToken(e.target.value)}
               placeholder="Enter your token"
-              style={styles.input}
+              style={{
+                ...styles.input,
+                ...(showError ? styles.inputError : null),
+              }}
+              // A token is an opaque secret: iOS otherwise capitalises the first
+              // character and autocorrects it into something the hub refuses.
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              autoComplete="current-password"
+              aria-invalid={showError || undefined}
+              aria-describedby={showError ? 'setup-error' : undefined}
             />
           </div>
 
-          <Button type="submit" variant="primary" style={{ width: '100%' }}>Connect</Button>
+          {showError && (
+            <div id="setup-error" role="alert" style={styles.error}>
+              <strong style={styles.errorTitle}>Token rejected</strong>
+              <span style={styles.errorBody}>
+                The hub refused this token ({authError}). Check it against{' '}
+                <code style={styles.code}>tokens</code> in the hub's config.toml.
+              </span>
+            </div>
+          )}
+
+          <Button type="submit" variant="primary" style={{ width: '100%' }} disabled={connecting}>
+            {connecting ? 'Connecting…' : 'Connect'}
+          </Button>
         </form>
+      </div>
     </Modal>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  overlay: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(10, 10, 12, 0.92)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-    backdropFilter: 'blur(8px)',
-  },
-  modal: {
-    position: 'relative',
-    background: 'var(--color-panel)',
-    border: '1px solid var(--color-border)',
-    borderRadius: '12px',
-    padding: '40px',
-    width: '400px',
-    maxWidth: '92vw',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+  // ui/Modal's card carries NO padding of its own — every caller pads its own
+  // content. SetupModal lost that when it moved onto the primitive: its old
+  // `styles.modal` (padding 40px) was left behind as dead code and never applied,
+  // so the form sat flush against the card edge. This is that padding, restored,
+  // plus the notch/home-indicator insets a phone needs.
+  body: {
+    padding: '28px 24px 24px',
+    paddingLeft: 'max(24px, env(safe-area-inset-left))',
+    paddingRight: 'max(24px, env(safe-area-inset-right))',
+    paddingBottom: 'max(24px, env(safe-area-inset-bottom))',
   },
   closeBtn: {
     position: 'absolute',
-    top: '10px',
-    right: '12px',
+    top: '8px',
+    right: '8px',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
     color: 'var(--color-muted)',
     fontSize: '16px',
     lineHeight: 1,
-    padding: '6px 8px',
+    // 44px is the minimum comfortable touch target on iOS.
+    minWidth: '44px',
+    minHeight: '44px',
   },
   header: {
     textAlign: 'center',
@@ -140,24 +171,42 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--color-bg)',
     border: '1px solid var(--color-border)',
     borderRadius: '6px',
-    padding: '10px 12px',
+    padding: '11px 12px',
     color: 'var(--color-text)',
-    fontSize: '14px',
+    // MUST stay >= 16px. Below that, iOS Safari zooms the page in when the field
+    // takes focus — the modal is then wider than the viewport, the layout lurches
+    // under the keyboard, and typing feels like the app is fighting you.
+    fontSize: '16px',
     fontFamily: 'var(--font-ui)',
     outline: 'none',
+    width: '100%',
+    boxSizing: 'border-box',
     transition: 'border-color 0.15s',
   },
-  button: {
-    background: 'var(--color-accent)',
-    border: 'none',
+  inputError: {
+    borderColor: 'var(--color-danger)',
+  },
+  error: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '3px',
+    padding: '10px 12px',
     borderRadius: '6px',
-    padding: '12px',
-    color: '#fff',
-    fontSize: '14px',
+    background: 'color-mix(in srgb, var(--color-danger) 12%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--color-danger) 45%, transparent)',
+  },
+  errorTitle: {
+    fontSize: '13px',
     fontWeight: 600,
-    fontFamily: 'var(--font-ui)',
-    cursor: 'pointer',
-    marginTop: '8px',
-    transition: 'opacity 0.15s',
+    color: 'var(--color-danger)',
+  },
+  errorBody: {
+    fontSize: '12px',
+    lineHeight: 1.45,
+    color: 'var(--color-muted)',
+  },
+  code: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '11px',
   },
 };
