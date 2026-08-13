@@ -1,6 +1,6 @@
 {
   "name": "sigil",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "description": "Repo root shim — the web client lives in web/. Delegates npm install/lint/test/build so tooling run from the repo root hits the real scripts in web/package.json.",
   "scripts": {

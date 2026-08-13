@@ -1,7 +1,7 @@
 .PHONY: all build build-web build-cli build-linux build-linux-arm64 deploy clean dev test lint sync-mac
 
 BINARY     := sigild
-VERSION    := 0.1.11
+VERSION    := 0.1.12
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_DIR  := dist
