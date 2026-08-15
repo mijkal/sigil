@@ -68,3 +68,50 @@ func TestOverflowIsBounded(t *testing.T) {
 		t.Errorf("maxOverflowConns = %d, want a small positive bound", maxOverflowConns)
 	}
 }
+
+// A host can be marked connected in memory and be unusable in fact.
+//
+// On 2026-08-15 jupiter sat at status=error("EOF") for 12.5 hours with twelve
+// live tmux sessions on it and sshd answering ssh from the sigild host itself.
+// The reconnect loop logs every attempt and logged none in that window, because
+// it skipped on IsConnected() — a bool set at dial time and cleared only by the
+// keepalive goroutine, which returns for good on its first miss and is never
+// restarted. One manual /connect fixed it instantly; nothing was wrong with the
+// host. These pin the two halves of that.
+
+func TestAliveIsFalseWithoutAClient(t *testing.T) {
+	// The probe must never report a host healthy on the strength of a struct
+	// existing — that is the same mistake as trusting Connected.
+	p := &Pool{conns: map[string]*HostConn{"h": {Connected: true}}}
+	if p.alive("h") {
+		t.Fatal("alive() must be false when there is no client to ask")
+	}
+	if p.alive("missing") {
+		t.Fatal("alive() must be false for an unknown host")
+	}
+}
+
+func TestMarkDisconnectedClearsTheFlagAndRecordsWhy(t *testing.T) {
+	// The reconnect loop reads the flag; the API reads the DB. If only one is
+	// updated they disagree, which is precisely the 12.5-hour stall.
+	p := &Pool{conns: map[string]*HostConn{"h": {Connected: true}}}
+	cause := errors.New("liveness probe failed")
+	p.markDisconnected("h", cause)
+	if p.conns["h"].Connected {
+		t.Fatal("markDisconnected must clear the in-memory flag")
+	}
+	if p.conns["h"].Err == nil {
+		t.Fatal("markDisconnected must record the cause")
+	}
+	if p.IsConnected("h") {
+		t.Fatal("IsConnected must follow markDisconnected")
+	}
+}
+
+func TestMarkDisconnectedIsSafeForAnUnknownHost(t *testing.T) {
+	// Called from the reconnect loop, which iterates config — a host in config
+	// but never dialled has no conns entry, and a panic there would take the
+	// loop down for every other host too.
+	p := &Pool{conns: map[string]*HostConn{}}
+	p.markDisconnected("never-dialled", errors.New("x"))
+}

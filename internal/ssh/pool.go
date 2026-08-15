@@ -335,6 +335,7 @@ func (p *Pool) reconnectLoop(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	backoff := map[string]time.Duration{}
+	nextTry := map[string]time.Time{}
 
 	for {
 		select {
@@ -345,8 +346,34 @@ func (p *Pool) reconnectLoop(ctx context.Context) {
 				if !hc.AutoConnect {
 					continue
 				}
+				// PROBE, don't trust the cached flag.
+				//
+				// This used to `continue` whenever IsConnected() was true — a bool
+				// set at dial time and cleared only by the keepalive goroutine. That
+				// goroutine returns for good on its first miss and nothing restarts
+				// it, so a host can be marked connected in memory, unusable in fact,
+				// and never looked at again.
+				//
+				// 2026-08-15: jupiter sat at status=error("EOF") for 12.5 hours with
+				// twelve live tmux sessions on it and sshd answering ssh from this
+				// very machine. The loop logs every attempt and logged none, because
+				// in memory the host still read as connected. A single manual
+				// /connect fixed it instantly — nothing was wrong with the host.
 				if p.IsConnected(hc.Name) {
-					backoff[hc.Name] = 0
+					if p.alive(hc.Name) {
+						backoff[hc.Name] = 0
+						delete(nextTry, hc.Name)
+						continue
+					}
+					p.log.Warn().Str("host", hc.Name).
+						Msg("host reads connected but does not answer — reconnecting")
+					p.markDisconnected(hc.Name, fmt.Errorf("liveness probe failed"))
+				}
+
+				// Honour the backoff. It was computed and stored here but never
+				// waited on, so a genuinely dead host was redialled every 10s
+				// forever — the doubling below was decorative.
+				if t, ok := nextTry[hc.Name]; ok && time.Now().Before(t) {
 					continue
 				}
 
@@ -364,11 +391,46 @@ func (p *Pool) reconnectLoop(ctx context.Context) {
 						next = 60 * time.Second
 					}
 					backoff[hc.Name] = next
+					nextTry[hc.Name] = time.Now().Add(next)
 				} else {
 					backoff[hc.Name] = 0
+					delete(nextTry, hc.Name)
 				}
 			}
 		}
+	}
+}
+
+// alive reports whether the host's primary connection still answers.
+//
+// Deliberately a keepalive REQUEST rather than opening a session: a host at
+// sshd's MaxSessions cannot open one, and that is a busy host, not a dead one —
+// tearing down a working connection because it is fully subscribed would be a
+// worse outage than the one this exists to fix.
+func (p *Pool) alive(hostName string) bool {
+	p.mu.RLock()
+	hc, ok := p.conns[hostName]
+	p.mu.RUnlock()
+	if !ok || hc.Client == nil {
+		return false
+	}
+	_, _, err := hc.Client.SendRequest("keepalive@openssh.com", true, nil)
+	return err == nil
+}
+
+// markDisconnected clears the in-memory flag and records why, so the reconnect
+// loop and the API agree about what happened.
+func (p *Pool) markDisconnected(hostName string, cause error) {
+	p.mu.Lock()
+	if hc, ok := p.conns[hostName]; ok {
+		hc.Connected = false
+		hc.Err = cause
+	}
+	p.mu.Unlock()
+	// Nil-guarded: this runs inside the shared reconnect goroutine, so a panic
+	// here would stop monitoring for EVERY host, not just this one.
+	if p.db != nil {
+		_ = p.db.UpdateHostStatus(hostName, "error", cause.Error())
 	}
 }
 
@@ -381,19 +443,24 @@ func (p *Pool) keepalive(ctx context.Context, hostName string, client *ssh.Clien
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if !p.IsConnected(hostName) {
+			// Stop only when THIS client is no longer the host's connection.
+			//
+			// The check used to be `if !p.IsConnected(hostName) { return }`, which
+			// also fired on a host merely marked disconnected — so a blip retired
+			// the only thing watching that host, and a later reconnect that reused
+			// the same client left it unmonitored for good. Comparing identity ends
+			// the goroutine exactly when it is superseded, and not before.
+			p.mu.RLock()
+			hc, ok := p.conns[hostName]
+			current := ok && hc.Client == client
+			p.mu.RUnlock()
+			if !current {
 				return
 			}
-			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-			if err != nil {
-				p.log.Warn().Err(err).Str("host", hostName).Msg("keepalive failed, marking disconnected")
-				p.mu.Lock()
-				if hc, ok := p.conns[hostName]; ok {
-					hc.Connected = false
-					hc.Err = err
-				}
-				p.mu.Unlock()
-				_ = p.db.UpdateHostStatus(hostName, "error", err.Error())
+			if _, _, err := client.SendRequest("keepalive@openssh.com", true, nil); err != nil {
+				p.log.Warn().Err(err).Str("host", hostName).
+					Msg("keepalive failed, marking disconnected")
+				p.markDisconnected(hostName, err)
 				return
 			}
 		}
