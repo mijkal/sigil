@@ -561,7 +561,7 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 	// __T__ deliberately probes ONLY the default server: it is the tmux-up
 	// signal that drives auto-resurrect of the work sessions. Ephemerals are
 	// never resurrected, so the ephemeral server's liveness must not influence it.
-	const listBlock = `tmux%s list-sessions -F '__S__:#{session_name}:#{session_windows}:#{session_created}:#{session_activity}:#{session_attached}' 2>/dev/null; tmux%s list-windows -a -F '__W__|#{session_name}|#{window_index}|#{window_id}|#{window_name}|#{window_active}|#{window_panes}' 2>/dev/null; tmux%s list-panes -a -F '__P__|#{session_name}|#{window_active}|#{pane_active}|#{pane_current_command}|#{pane_current_path}' 2>/dev/null; `
+	const listBlock = `tmux%s list-sessions -F '__S__:#{session_name}:#{session_windows}:#{session_created}:#{session_activity}:#{session_attached}' 2>/dev/null; tmux%s list-windows -a -F '__W__|#{session_name}|#{window_index}|#{window_id}|#{window_name}|#{window_active}|#{window_panes}' 2>/dev/null; tmux%s list-panes -a -F '` + paneListFormat + `' 2>/dev/null; `
 	cmd := "(" +
 		strings.ReplaceAll(listBlock, "%s", "") +
 		strings.ReplaceAll(listBlock, "%s", " -L "+ephemeralSocket) +
@@ -583,6 +583,10 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 	resumeCmdBySession := map[string]string{}
 	// Active pane command per session (for the live activity signal).
 	paneCmdBySession := map[string]string{}
+	// panePipeBySession records tmux's OWN view of whether each session's
+	// piped pane currently has a sink attached. This is the authority that
+	// lets capture self-heal after the target reboots; see shouldArmPipe.
+	panePipeBySession := map[string]pipeState{}
 	// Current pipe-log size keyed by SafeFileName (the log basename).
 	logSizeBySafe := map[string]int64{}
 	tmuxUp := false
@@ -663,15 +667,20 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 			})
 
 		} else if strings.HasPrefix(line, "__P__|") {
-			parts := strings.SplitN(line[6:], "|", 5)
-			if len(parts) < 5 {
+			rec, ok := parsePaneRecord(line[6:])
+			if !ok {
 				continue
 			}
-			sessName := parts[0]
-			windowActive := parts[1] == "1"
-			paneActive := parts[2] == "1"
-			paneCmd := parts[3]
-			path := parts[4]
+			sessName := rec.session
+			windowActive := rec.windowActive
+			paneActive := rec.paneActive
+			paneCmd := rec.cmd
+			path := rec.path
+			// Pipe state matters only for the pane we actually pipe:
+			// exactPane() targets the active pane of the active window.
+			if windowActive && paneActive {
+				panePipeBySession[sessName] = rec.pipe
+			}
 			if windowActive && paneActive && path != "" {
 				cwdBySession[sessName] = path
 			}
@@ -812,8 +821,20 @@ func (m *Manager) DiscoverHost(ctx context.Context, hostName string) error {
 	// StartPipeCapture). isPiped keeps steady-state ticks free of goroutine
 	// churn.
 	for name := range sessions {
-		if m.isPiped(hostName, name) {
+		cached := m.isPiped(hostName, name)
+		observed := panePipeBySession[name] // absent from the map => pipeUnknown
+		if !shouldArmPipe(cached, observed) {
 			continue
+		}
+		if cached && observed == pipeAbsent {
+			// We believed this session was piped and tmux says it is not: the
+			// target rebooted, its tmux server was restarted, or someone ran
+			// pipe-pane by hand. Drop the stale bookkeeping — StartPipeCapture
+			// early-returns while it is set — and log it, because this is the
+			// transition that silently cost six days of scrollback in 2026-08.
+			m.forgetPiped(hostName, name)
+			m.log.Info().Str("host", hostName).Str("session", name).
+				Msg("pipe-pane lost on target — re-arming capture")
 		}
 		name := name
 		go func() {
@@ -2098,6 +2119,98 @@ func pipeLogShellPath(sessionName string) string {
 func legacyPipeLogShellPath(hostName, sessionName string) string {
 	return fmt.Sprintf("/tmp/sigil-pipe-%s-%s.log",
 		sigil.SafeFileName(hostName), sigil.SafeFileName(sessionName))
+}
+
+// paneListFormat is the tmux -F format behind the __P__ discovery lines.
+//
+// #{pane_pipe} is tmux's ground truth for whether a pane currently has a
+// pipe-pane sink attached. Discovery reads it so capture can recover by itself
+// after the TARGET host reboots — without it, sigild's in-memory bookkeeping is
+// the only signal and it cannot tell "armed" from "armed, then the remote tmux
+// server died underneath us". See shouldArmPipe.
+//
+// #{pane_current_path} MUST remain the trailing field: a path may contain a
+// literal '|', and parsePaneRecord relies on SplitN letting the last field
+// absorb it.
+const paneListFormat = "__P__|#{session_name}|#{window_active}|#{pane_active}|" +
+	"#{pane_current_command}|#{pane_pipe}|#{pane_current_path}"
+
+// pipeState is what tmux reported for #{pane_pipe} on a session's piped pane.
+type pipeState uint8
+
+const (
+	// pipeUnknown means tmux told us nothing usable — the format variable is
+	// unsupported on an old tmux, or the pane was never seen this tick. It is
+	// the zero value on purpose: a map miss must not read as "not piped".
+	pipeUnknown pipeState = iota
+	pipeAbsent            // #{pane_pipe} == 0 — definitively NOT piped
+	pipePresent           // #{pane_pipe} == 1 — definitively piped
+)
+
+// parsePipeField maps a raw #{pane_pipe} field onto pipeState. Anything that is
+// not an explicit 0 or 1 is unknown, never a guess.
+func parsePipeField(f string) pipeState {
+	switch f {
+	case "1":
+		return pipePresent
+	case "0":
+		return pipeAbsent
+	default:
+		return pipeUnknown
+	}
+}
+
+// paneRecord is one parsed __P__ discovery line.
+type paneRecord struct {
+	session      string
+	windowActive bool
+	paneActive   bool
+	cmd          string
+	pipe         pipeState
+	path         string
+}
+
+// parsePaneRecord parses a __P__ line body (the text after the "__P__|"
+// prefix). The path is taken as the final field so an embedded '|' survives.
+func parsePaneRecord(payload string) (paneRecord, bool) {
+	parts := strings.SplitN(payload, "|", 6)
+	if len(parts) < 6 {
+		return paneRecord{}, false
+	}
+	return paneRecord{
+		session:      parts[0],
+		windowActive: parts[1] == "1",
+		paneActive:   parts[2] == "1",
+		cmd:          parts[3],
+		pipe:         parsePipeField(parts[4]),
+		path:         parts[5],
+	}, true
+}
+
+// shouldArmPipe decides whether discovery must (re)establish pipe-pane capture
+// for a session, given what we cached and what tmux just reported.
+//
+// The cache alone is not sufficient and that is the whole point: it is keyed
+// host:session and survives the remote tmux server dying, so a target reboot
+// used to leave every session flagged "piped" with no sink behind it, for the
+// life of the sigild process. tmux's own answer therefore outranks the cache
+// whenever it is definite, and the cache only decides when tmux is silent.
+func shouldArmPipe(cachedPiped bool, observed pipeState) bool {
+	if observed == pipeAbsent {
+		return true // tmux is certain there is no sink — always re-arm
+	}
+	// pipePresent with a cold cache still arms: a pipe left by a previous
+	// sigild process writes to a sink this one does not own, and
+	// StartPipeCapture is stop+start, so re-arming reclaims it.
+	return !cachedPiped
+}
+
+// forgetPiped drops cached pipe bookkeeping for a session so that the next
+// StartPipeCapture actually runs instead of early-returning on a stale flag.
+func (m *Manager) forgetPiped(hostName, sessionName string) {
+	m.pipedMu.Lock()
+	delete(m.pipedSessions, hostName+":"+sessionName)
+	m.pipedMu.Unlock()
 }
 
 // isPiped reports whether pipe capture has already been established for the
